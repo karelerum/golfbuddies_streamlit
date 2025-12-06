@@ -4,8 +4,8 @@ import components.api_tables as t
 import components.functions as f
 import components.config as c
 
-st.write("BASE_DIR:", c.BASE_DIR)
-st.write("FILES:", list(c.BASE_DIR.glob("*.xlsx")))
+st.write("DATA_DIR:", c.DATA_DIR)
+st.write("FILES:", list(c.DATA_DIR.glob("*.xlsx")))
 
 st.set_page_config(page_title="Hoved")
 
