@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 import components.functions as f
 from components.config import DATA_DIR
+import openpyxl as xl
 
 
 def get_excel_w_name(navn: str) -> pd.DataFrame:

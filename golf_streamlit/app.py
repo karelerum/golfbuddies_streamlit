@@ -16,6 +16,8 @@ innlogget_spiller = st.session_state.get("innlogget_spiller")
 
 st.header("Vestland Open")
 
+if st.button("Til Registrer slag"):
+    st.switch_page("pages/01_Registrer_slag.py")
 #Dropdown
 turneringsid = v.dropdown_turnering()
 

@@ -30,7 +30,6 @@ def dropdown_turnering():
 
     # Finn rad med høyest turnerngsid (numerisk)
     valgt_default = df_turn.loc[df_turn[c.TURNERINGSID].idxmax(), "TurneringsNavn"]
-
     #  3. Dropdown for å velge turnering basert på navn
     options = df_turn["TurneringsNavn"].tolist()
     valgt_navn = st.selectbox(
@@ -133,7 +132,7 @@ def line_chart(valgt_turneringsid: int ,valgt_verdi: str = c.VERDI.P6.value, akk
             ),
             tooltip=["Spiller", "Runde", valgt_verdi],
         )
-        .interactive()
+       # .interactive()
     )
 
     return chart

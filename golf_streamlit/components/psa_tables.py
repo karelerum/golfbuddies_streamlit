@@ -19,23 +19,27 @@ def result_current_raw() -> pd.DataFrame:
 
     filnavn_liste = [f.name for f in c.RUNDER_DIR.iterdir() if f.is_file()]
 
-    # Grunnstruktur for tomt datasett
-    df_empty = pd.DataFrame(columns=[
-        "TurneringsId",
-        "Runde",
-        "Hull",
-        "Spiller",
-        "Slag"
-    ])
+    df_total = pd.DataFrame()  # start tom
 
-    df_total = df_empty.copy()
+    dr_rundeinfo = get_excel_w_name("rundeinfo")
+
+    aapne_runder = (
+        dr_rundeinfo
+        .loc[dr_rundeinfo["Ferdig_ind"] == 0, "RundeId"]
+        .unique()
+        .astype(str)
+    )
 
     for navn in filnavn_liste:
         stem = Path(navn).stem  # f.eks "Runde_202502_01"
         _, turneringsid, runde = stem.split("_")
 
+        if (turneringsid + runde) in aapne_runder:
+            continue
+        
         # Les inn fil
         df_part = get_excel_w_path(c.RUNDER_DIR / navn)
+
 
         # Melt spillere til rader
         df_part = df_part.melt(
@@ -54,25 +58,7 @@ def result_current_raw() -> pd.DataFrame:
         # Fjern Slag = NaN (rad-tomme spill)
         df_part = df_part.dropna(subset=["Slag"])
 
-        # --- RENSING AV DF PART (fjerner alle problematiske tilfeller) ---
-
-        # Fjern rader som er 100% tomme
-        df_part = df_part.dropna(axis=0, how="all")
-
-        # Fjern kolonner som er 100% NaN
-        df_part = df_part.dropna(axis=1, how="all")
-
-        # Fjern kolonner med *ingen* faktiske verdier (som "empty")
-        if not df_part.empty:
-            df_part = df_part.loc[:, df_part.notna().any()]
-
-        # Sjekk at df_part har minst én rad og én kolonne
-        if df_part.shape[0] > 0 and df_part.shape[1] > 0:
-            df_total = pd.concat([df_total, df_part], ignore_index=True)
-
-    # --- Sluttrens før retur ---
-    df_total = df_total.dropna(axis=1, how="all")
-    df_total = df_total.dropna(axis=0, how="all")
+        df_total = df_total._append(df_part, ignore_index = True)
 
     return df_total
 

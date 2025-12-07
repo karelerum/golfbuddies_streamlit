@@ -163,11 +163,3 @@ def sjekk_spiller_passord() -> bool:
     return True
 
 
-def go_to_page(page_name: str):
-    page_name = page_name.replace(" ", "%20")  # håndter whitespace
-    js = f"""
-    <script>
-        window.location.href = '/#{page_name}';
-    </script>
-    """
-    st.markdown(js, unsafe_allow_html=True)

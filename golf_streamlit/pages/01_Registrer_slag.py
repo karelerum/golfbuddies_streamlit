@@ -8,6 +8,8 @@ import components.functions as f
 st.set_page_config(page_title="Registrer slag")
 
 st.title("Registrer slag")
+if st.button("Til Hovedside"):
+    st.switch_page("app.py")
 
 if not st.session_state.get("innlogget_spiller"):
     #f.go_to_page("02_Adm_oppdater_rundeinfo")

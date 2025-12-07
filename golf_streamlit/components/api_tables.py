@@ -48,12 +48,12 @@ def resultat_pr_hull(turneringsid, valgt_runde:int, valgt_verdi: str):
         if valgt_verdi == c.VERDI.Slag.value:
             is_value = s == s.min()
         else: is_value = s == s.max()
-
+    
         return [
-            "background-color: #CCFFCC; font-weight: bold" if v else ""
+            "font-weight: 999;" if v else ""
             for v in is_value
         ]
-    
+        
     # Returnér en styler
     pivot = (
         pivot.style
@@ -61,3 +61,5 @@ def resultat_pr_hull(turneringsid, valgt_runde:int, valgt_verdi: str):
         .format(f.fmt) 
     )
     return pivot
+
+#background-color: #CCFFCC; 
