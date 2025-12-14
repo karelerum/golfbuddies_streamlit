@@ -1,38 +1,44 @@
 import streamlit as st
-import components.visuals as v
-import components.api_tables as t
 import components.functions as f
-import components.config as c
+import components.visuals as v
+import sub_pages.hjem as hj
+import sub_pages.registrer_score as rs
+import sub_pages.adm as adm
+import sub_pages.test as test
 
-st.set_page_config(page_title="Hoved")
 
 # 🔐 Sjekk passord helt øverst
 if not f.sjekk_spiller_passord():
     st.stop()
 
+v.remove_top_dtreamlit_padding()
+
+if st.session_state.get("innlogget_spiller") is not None:
+    st.markdown(f"<div style='text-align: center;'>Velkommen, <b>{st.session_state.get('innlogget_spiller')}</b>! 👋</div>", unsafe_allow_html=True)
+    st.space("small") 
 # 👉 Fra nå av er bruker "inne i appen"
 innlogget_spiller = st.session_state.get("innlogget_spiller")
 
 
-st.header("Vestland Open")
+# Initialiser session state for valgt_side hvis ikke allerede satt
+if "valgt_side" not in st.session_state:
+    st.session_state.valgt_side = "Hjem"
+    st.session_state.valgt_innsikt_sub_side = "Turneringsoversikt"
 
-if st.button("Til Registrer slag"):
-    st.switch_page("pages/01_Registrer_slag.py")
-#Dropdown
-turneringsid = v.dropdown_turnering()
+v.hoved_navbar()
+if st.session_state.valgt_side == "Hjem":
+    v.sub_navbar()
+    st.write(f"# {st.session_state.valgt_side} - {st.session_state.valgt_innsikt_sub_side}")
+else: st.title(st.session_state.valgt_side)
 
-#Filter
-valgt_verdi = v.filter_verdi()
-
-#TABELL - Poeng pr runde
-df_runde_pivot = t.resultat_runde_pivot(turneringsid, valgt_verdi)
-st.dataframe(df_runde_pivot)
-
-#LINE CHART - Poeng pr runde
-akkumulert_ind = st.toggle("Vis akkumulert", value=False)
-st.altair_chart(v.line_chart(turneringsid, valgt_verdi, akkumulert_ind)) 
-
-#TABELL- Alle runder
-valgt_runde = v.dropdown_runde(turneringsid)
-df = t.resultat_pr_hull(turneringsid, valgt_runde, valgt_verdi)
-st.dataframe(df, height= 690)
+if st.session_state.valgt_side == "Hjem":
+    if st.session_state.valgt_innsikt_sub_side == "Turneringsoversikt":
+        hj.turneringsoversikt()
+    elif st.session_state.valgt_innsikt_sub_side == "Annet gøy":
+        hj.annet_gøy()
+elif st.session_state.valgt_side == "Registrer score":
+    rs.page()
+elif st.session_state.valgt_side == "Adm":
+    adm.page()
+elif st.session_state.valgt_side == "TEST":
+    test.page()

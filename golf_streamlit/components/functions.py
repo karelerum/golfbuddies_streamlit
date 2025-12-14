@@ -1,7 +1,7 @@
 import pandas as pd
 import components.config as c
 import streamlit as st
-
+import time
 
 def add_best_slag_col(df: pd.DataFrame) -> pd.DataFrame:
     return pd
@@ -146,10 +146,13 @@ def sjekk_spiller_passord() -> bool:
     st.markdown("### Passord")
     pwd = st.text_input("Skriv inn passord for å åpne appen:", type="password")
 
-    if pwd == "":
+    #if pwd == "":
         # Ikke skrevet noe enda → ikke vis feilmelding, bare vent
-        return False
+     #   return False
 
+    if not st.button("Logg inn", type="primary"):
+        st.stop() 
+    
     spiller = finn_spiller_for_passord(pwd)
 
     if spiller is None:
@@ -159,7 +162,16 @@ def sjekk_spiller_passord() -> bool:
     # Passord er ok → lagre globalt
     st.session_state["passord_ok_ind"] = True
     st.session_state["innlogget_spiller"] = spiller
-    st.success(f"Passord godkjent! Du er logget inn som **{spiller}** 🔓")
+    st.success(f"Passord godkjent! 🔓")
+    with st.spinner("Logger inn…"):
+        time.sleep(1)
+    st.rerun() 
+    
     return True
 
-
+def button_nav(label: str) -> None:
+    """Navigasjonsknapp som setter valgt side i session_state."""
+    label,
+    on_click=lambda: st.session_state.update(valgt_side=label),
+    type="primary" if st.session_state.valgt_side == label else "secondary",
+    use_container_width=True

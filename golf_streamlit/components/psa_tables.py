@@ -79,19 +79,18 @@ def result_current() -> pd.DataFrame:
 
 st.cache_data
 def resultat() -> pd.DataFrame:
-    df_hist = result_hist()
-    df_current = result_current()
-    df = pd.concat([df_hist, df_current], ignore_index=True)
-    df["RundeId"] = df["RundeId"].astype(int)
-    df[c.TURNERINGSID] = df[c.TURNERINGSID].astype(int)
-    dr_rundeinfo = get_excel_w_name("rundeinfo")
-
-    ferdige_runder = (
-    dr_rundeinfo
-    .loc[dr_rundeinfo["Ferdig_ind"] == 1, "RundeId"]
-    .unique()
-    )
-
-    df= df[df["RundeId"].isin(ferdige_runder)]
+    df = result_hist()
 
     return df
+
+def get_hull_detaljer() -> pd.DataFrame:
+    df_rundeinfo = get_excel_w_name("rundeinfo")
+
+    df_hullinfo = get_excel_w_name("hullinfo")
+    df = df_rundeinfo.merge(df_hullinfo, how="left", on=["Bane", "Bane"])
+    df = df.loc[:,["RundeId","Bane", "Hull", "Par", "Index"]]
+
+    return df
+
+def get_baneinfo() -> pd.DataFrame:
+    return get_excel_w_name("baneinfo")

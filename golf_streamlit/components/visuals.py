@@ -2,6 +2,8 @@ import altair as alt
 import streamlit as st
 import components.config as c
 import components.psa_tables as t
+import components.update_resultat as ur
+import pandas as pd
 
 def filter_verdi():
 
@@ -10,11 +12,11 @@ def filter_verdi():
     options = [v.value for v in c.VERDI]
 
     valgt_verdi = st.segmented_control(
-        "Velg verdi",
+        "Velg verdi til visninger under:",
         options=options,
         selection_mode="single",
         default=valgt_default,
-        label_visibility="collapsed"
+        #label_visibility="collapsed"
     )
 
     if not valgt_verdi:
@@ -83,7 +85,6 @@ def dropdown(valg_liste: list, tittel:str):
     
     return valg
 
-
 def line_chart(valgt_turneringsid: int ,valgt_verdi: str = c.VERDI.P6.value, akkumulert_ind: bool = False):
 
     df = t.resultat()
@@ -132,7 +133,7 @@ def line_chart(valgt_turneringsid: int ,valgt_verdi: str = c.VERDI.P6.value, akk
             ),
             tooltip=["Spiller", "Runde", valgt_verdi],
         )
-       # .interactive()
+        .interactive()
     )
 
     return chart
@@ -165,3 +166,118 @@ def input_spiller_passord(spiller_navn: str) -> bool:
         st.error("Feil passord. Prøv igjen 🔐")
         return False
 
+def hoved_navbar():
+    sider = ["Hjem", "Registrer slag", "Adm"]
+    st.set_page_config(page_title=st.session_state.valgt_side)
+    con = st.container(horizontal= True)
+    for side in sider:
+        con.button(
+            side,
+            on_click=lambda s=side: st.session_state.update(valgt_side=s),
+            type="primary" if st.session_state.valgt_side == side else "secondary",
+            use_container_width=True
+        )
+    if st.session_state.get("innlogget_spiller") == "Kåre":
+        con.button(
+            "TEST",
+            on_click=lambda: st.session_state.update(valgt_side="TEST"),
+            type="primary" if st.session_state.valgt_side == "TEST" else "secondary",
+            use_container_width=True
+        )
+
+def sub_navbar():
+    sider = ["Turneringsoversikt", "Annet gøy"]
+    con = st.container(horizontal= True)
+    for side in sider:
+        con.button(
+            side,
+            on_click=lambda s=side: st.session_state.update(valgt_innsikt_sub_side=s),
+            type="primary" if st.session_state.valgt_innsikt_sub_side == side else "secondary",
+            use_container_width=True
+        ) 
+
+def remove_top_dtreamlit_padding():
+    st.markdown("""
+    <style>
+        /* Target the main content container */
+        .block-container {
+            padding-top: 0rem;
+            padding-bottom: 0rem;
+            margin-top: 0rem;
+        }
+        /* Target the header/top bar to make it transparent or hide it */
+        header.stAppHeader {
+            background-color: transparent;
+        }
+    </style>
+    """, unsafe_allow_html=True) 
+
+def button_update_result():
+    if st.button("Oppdater resultat"):
+        ur.update_resultat()
+        st.success("Resultat oppdatert!")
+
+def table_uten_totat(df: pd.DataFrame):
+    row_height = 35        # ca px per rad
+    header_height = 35
+    height = header_height + len(df) * row_height + 2
+
+    st.dataframe(df, width="stretch", height=height, hide_index=True)
+
+def linje_diagram(df: pd.DataFrame, linje_col: str, linje_sort: list = None):
+        df_long = df.melt(
+            id_vars=linje_col,
+            var_name="Resultat",
+            value_name="Antall"
+        )
+        spillere = [
+            s for s in c.SPILLER_FARGER.keys()
+            if s in df_long[linje_col].unique()
+        ]
+
+        farger = [c.SPILLER_FARGER[s] for s in spillere]
+
+        selection = alt.selection_point(
+            fields=[linje_col],
+            bind="legend",
+            toggle="event.shiftKey"
+        )
+
+        chart = (
+            alt.Chart(df_long)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X(
+                    "Resultat:N",
+                    sort=list(dict.fromkeys(df_long["Resultat"])),
+                    title=None,
+                    axis=alt.Axis(labelAngle=0)
+                ),
+                y=alt.Y("Antall:Q", title=None),
+                color=alt.Color(
+                    f"{linje_col}:N",
+                    scale=alt.Scale(domain=spillere, range=farger),
+                    legend=alt.Legend(orient="top", title=None)
+                ),
+                opacity=alt.condition(selection, alt.value(1), alt.value(0.1)),
+                tooltip=[linje_col, "Resultat", "Antall"]
+            )
+            .add_params(selection)
+        )
+
+        st.altair_chart(chart, width="stretch")
+
+def generell_filterverdi(liste: list): 
+    options = liste
+    valgt_verdi = st.segmented_control(
+        "Velg visning:",
+        options=options,
+        selection_mode="single",
+        default=options[0],
+        #label_visibility="collapsed"
+    )
+
+    if not valgt_verdi:
+        valgt_verdi = options[0]
+
+    return valgt_verdi

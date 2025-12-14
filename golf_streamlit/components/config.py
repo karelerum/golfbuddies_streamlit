@@ -19,14 +19,15 @@ RUNDER_DIR = DATA_DIR / "runder"
 
 # colors.py
 SPILLER_FARGER = {
-    "OleJ": "#1f77b4",
-    "Doff": "#ff7f0e",
-    "OleC": "#2ca02c",
-    "Even": "#d62728",
-    "Kåre": "#9467bd",
-    "Tore": "#8c564b",
-    "Erling": "#e377c2",
+    "Tore":  "#6D4C41",  # brun
+    "OleC":  "#43A047",  # grønn
+    "Even":  "#E53935",  # rød
+    "OleJ":  "#1E88E5",  # klar blå
+    "Doff":  "#FB8C00",  # dyp oransje
+    "Kåre":  "#8E24AA",  # lilla
+    "Erling":"#00ACC1",  # cyan (ny, skiller seg tydelig)
 }
+
 
 # Kolonnenavn – tilpass hvis dine heter noe annet
 COL_SEASON = "Sesong"

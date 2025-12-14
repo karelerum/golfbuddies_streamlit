@@ -23,6 +23,16 @@ def get_excel_w_path (path: str) -> pd.DataFrame:
         raise RuntimeError(f"Feil ved lesing av Excel: {e}")
     
 
+def get_runde_rundeid(rundeid:int)  -> pd.DataFrame:
+    filnavn = "runder/" + f.rundeid_til_filnavn(rundeid)
+    path = DATA_DIR / f"{filnavn}.xlsx"
+    try:
+        return pd.read_excel(path)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Excel-fil ikke funnet: {path}")
+    except Exception as e:
+        raise RuntimeError(f"Feil ved lesing av Excel: {e}")
+
 def set_runde_excel(rundeid:int, df: pd.DataFrame) -> None:
     filnavn = "runder/" + f.rundeid_til_filnavn(rundeid)
     path = DATA_DIR / f"{filnavn}.xlsx"
