@@ -6,6 +6,13 @@ import time
 def add_best_slag_col(df: pd.DataFrame) -> pd.DataFrame:
     return pd
 
+def move_spiller_first(df: pd.DataFrame) -> pd.DataFrame:
+    col = st.session_state.get("innlogget_spiller")
+    if col not in df.columns:
+        return df
+    cols = [col] + [c for c in df.columns if c != col]
+    return df[cols]
+
 def add_6p_syst_col(df: pd.DataFrame) -> pd.DataFrame:
         # Rens kolonnenavn for evt. whitespace
     df = df.rename(columns=lambda c: c.strip())

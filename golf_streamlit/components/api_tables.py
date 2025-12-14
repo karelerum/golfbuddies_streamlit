@@ -49,10 +49,11 @@ def resultat_pr_hull(turneringsid, valgt_runde:int, valgt_verdi: str):
         else: is_value = s == s.max()
     
         return [
-            "font-weight: 999;" if v else ""
+            "font-weight: 700; background-color: rgba(255, 65, 65, 0.20);"
+            if v else ""
             for v in is_value
         ]
-        
+    pivot = f.move_spiller_first(pivot)   
     # Returnér en styler
     pivot = (
         pivot.style

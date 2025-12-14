@@ -108,9 +108,11 @@ def line_chart(valgt_turneringsid: int ,valgt_verdi: str = c.VERDI.P6.value, akk
 
     spiller_rekkefoelge = df.groupby("Spiller")[valgt_verdi].sum().sort_values(ascending=sort_value).index.tolist()
 
-        
+    farger = [c.SPILLER_FARGER[s] for s in spiller_rekkefoelge]
+
     y_min = df[valgt_verdi].min() - (df[valgt_verdi].min() * 0.1)
     y_max = df[valgt_verdi].max() + (df[valgt_verdi].max() * 0.1)
+
 
     chart = (
         alt.Chart(df)
@@ -119,21 +121,21 @@ def line_chart(valgt_turneringsid: int ,valgt_verdi: str = c.VERDI.P6.value, akk
             x=alt.X("Runde:O", title="Runde", sort="ascending", axis=alt.Axis(labelAngle=0)),
             y=alt.Y(
                 f"{valgt_verdi}:Q",
-                title=valgt_verdi,
+                title=None,
                 scale=alt.Scale(domain=[y_min, y_max]),
                 sort=sort_line,
             ),
             color=alt.Color(
                 "Spiller:N",
-                scale=alt.Scale(domain=spiller_rekkefoelge),
+                scale=alt.Scale(domain=spiller_rekkefoelge, range = farger),
                 legend=alt.Legend(
                     orient="top",    # ⬇️ plasser legend nederst
+                    columns = 6,
                     title=None          # Fjern tittel hvis ønskelig
                 )
             ),
             tooltip=["Spiller", "Runde", valgt_verdi],
         )
-        .interactive()
     )
 
     return chart
@@ -167,7 +169,7 @@ def input_spiller_passord(spiller_navn: str) -> bool:
         return False
 
 def hoved_navbar():
-    sider = ["Hjem", "Registrer slag", "Adm"]
+    sider = ["Hjem", "Registrer slag"]
     st.set_page_config(page_title=st.session_state.valgt_side)
     con = st.container(horizontal= True)
     for side in sider:
@@ -178,6 +180,12 @@ def hoved_navbar():
             use_container_width=True
         )
     if st.session_state.get("innlogget_spiller") == "Kåre":
+        con.button(
+            "Adm",
+            on_click=lambda: st.session_state.update(valgt_side="Adm"),
+            type="primary" if st.session_state.valgt_side == "Adm" else "secondary",
+            use_container_width=True
+        )
         con.button(
             "TEST",
             on_click=lambda: st.session_state.update(valgt_side="TEST"),
@@ -257,7 +265,7 @@ def linje_diagram(df: pd.DataFrame, linje_col: str, linje_sort: list = None):
                 color=alt.Color(
                     f"{linje_col}:N",
                     scale=alt.Scale(domain=spillere, range=farger),
-                    legend=alt.Legend(orient="top", title=None)
+                    legend=alt.Legend(orient="top", title=None, columns = 6)
                 ),
                 opacity=alt.condition(selection, alt.value(1), alt.value(0.1)),
                 tooltip=[linje_col, "Resultat", "Antall"]
