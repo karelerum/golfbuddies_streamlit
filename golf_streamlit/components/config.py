@@ -64,14 +64,3 @@ class Col_Res(StrEnum):
     ROUND = "Runde"
     PLAYER = "Spiller"
     TURNERINGSID = "Turneringsid"
-
-# Passordregister – legg inn så mange spillere du vil
-PASSORD_MAP = {
-    "OleJ": "Nr1",
-    "Even": "Mr4",
-    "Kåre": "Dev",
-    "Doff": "Mrdrive",
-    "Tore": "Ryggen",
-    "OleC": "Mrold",
-    "Erling": "Mrny",
-}
