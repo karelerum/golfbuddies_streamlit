@@ -4,3 +4,5 @@ numpy
 openpyxl
 altair
 xlsxwriter
+gspread
+google-auth
