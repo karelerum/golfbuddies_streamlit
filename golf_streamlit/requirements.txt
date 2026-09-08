@@ -1,0 +1,6 @@
+streamlit
+altair
+pandas
+gspread
+google-auth
+google-auth-oauthlib
