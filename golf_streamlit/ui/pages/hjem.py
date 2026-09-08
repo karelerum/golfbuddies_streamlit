@@ -1,5 +1,4 @@
 import altair as alt
-import base64
 import os
 import pandas as pd
 import streamlit as st
@@ -20,46 +19,17 @@ from config.design_tokens import CHART_COLORS
 VALUE_OPTIONS = ["P6", "Slag"]
 FUN_OPTIONS = ["Birdie og sånn", "Gruppen pr runde", "Pall-plasser"]
 _BADGES_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "badges")
-_ROUND_BADGE_WIDTH = 112
+_ROUND_BADGE_COLUMNS = 4
 
 
-@st.dialog("Merke")
-def _show_badge_dialog(badge_path: str) -> None:
-    st.image(badge_path, width="stretch")
-
-
-def _badge_image_uri(filename: str) -> str:
-    badge_path = os.path.join(_BADGES_DIR, filename)
-    with open(badge_path, "rb") as badge_file:
-        encoded_image = base64.b64encode(badge_file.read()).decode("ascii")
-    return f"data:image/png;base64,{encoded_image}"
-
-
-def _render_clickable_badge(filename: str, key: str) -> bool:
-    image_uri = _badge_image_uri(filename)
-    st.markdown(
-        f"""
-        <style>
-        .st-key-{key} button {{
-            width: {_ROUND_BADGE_WIDTH}px !important;
-            height: {_ROUND_BADGE_WIDTH}px !important;
-            padding: 0 !important;
-            border: 0 !important;
-            background-image: url('{image_uri}');
-            background-position: center;
-            background-repeat: no-repeat;
-            background-size: contain;
-            cursor: zoom-in;
-            transition: opacity 120ms ease;
-        }}
-        .st-key-{key} button:hover {{
-            opacity: 0.9;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    return st.button("", key=key, help="Åpne merke")
+def _identifier_mask(values: pd.Series, identifier: str) -> pd.Series:
+    normalized_identifier = str(identifier).strip()
+    direct_matches = values.astype(str).str.strip().eq(normalized_identifier)
+    numeric_identifier = pd.to_numeric(normalized_identifier, errors="coerce")
+    if pd.isna(numeric_identifier):
+        return direct_matches
+    numeric_matches = pd.to_numeric(values, errors="coerce").eq(numeric_identifier)
+    return direct_matches | numeric_matches
 
 
 def _render_round_badges(spillermerker_df: pd.DataFrame | None, current_player: str, rundeid: str) -> None:
@@ -72,7 +42,7 @@ def _render_round_badges(spillermerker_df: pd.DataFrame | None, current_player: 
 
     badges = spillermerker_df.loc[
         spillermerker_df["spiller"].astype(str).str.strip().eq(str(current_player).strip())
-        & spillermerker_df["rundeid"].astype(str).eq(str(rundeid))
+        & _identifier_mask(spillermerker_df["rundeid"], str(rundeid))
         & spillermerker_df["vinner_innen"].astype(str).str.strip().str.lower().eq("runde")
     ].drop_duplicates(subset=["filnavn"])
     badges = badges.loc[badges["filnavn"].astype(str).map(
@@ -85,27 +55,25 @@ def _render_round_badges(spillermerker_df: pd.DataFrame | None, current_player: 
     st.markdown(
         """
         <style>
-        .st-key-home-round-badges [data-testid="stHorizontalBlock"] {
+        div[class*="st-key-home-round-badge-grid"] [data-testid="stHorizontalBlock"] {
             flex-wrap: nowrap !important;
         }
-        .st-key-home-round-badges [data-testid="stColumn"] {
+        div[class*="st-key-home-round-badge-grid"] [data-testid="stColumn"] {
             min-width: 0 !important;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
-    with st.container(key="home-round-badges"):
-        badge_columns = st.columns(len(badges), gap="small")
-        selected_badge_path = None
-        for badge_index, (column, (_, badge)) in enumerate(zip(badge_columns, badges.iterrows())):
-            with column:
-                filename = str(badge["filnavn"])
-                if _render_clickable_badge(filename, f"home-round-badge-{badge_index}"):
-                    selected_badge_path = os.path.join(_BADGES_DIR, filename)
-
-    if selected_badge_path is not None:
-        _show_badge_dialog(selected_badge_path)
+    badge_records = badges[["filnavn", "visningsnavn"]].to_dict("records")
+    with st.container(key="home-round-badge-grid"):
+        for row_start in range(0, len(badge_records), _ROUND_BADGE_COLUMNS):
+            badge_columns = st.columns(_ROUND_BADGE_COLUMNS, gap="small")
+            for column, badge in zip(badge_columns, badge_records[row_start:row_start + _ROUND_BADGE_COLUMNS]):
+                with column:
+                    filename = str(badge["filnavn"])
+                    st.image(os.path.join(_BADGES_DIR, filename), width="stretch")
+                    st.caption(str(badge["visningsnavn"]))
 
 
 def page():
@@ -171,7 +139,7 @@ def page():
             x=alt.X("runde:O", title="Runde", sort="ascending", axis=alt.Axis(labelAngle=0)),
             y=alt.Y(
                 f"{value_column}:Q",
-                title=valgt_verdi,
+                title=None,
                 scale=alt.Scale(domain=[y_min - padding, y_max + padding]),
             ),
             color=alt.Color(
@@ -197,7 +165,7 @@ def page():
         player_labels = (
             alt.Chart(latest_points_df)
             .transform_filter("!datum.is_current_player")
-            .mark_text(align="left", baseline="middle", dx=10, fontSize=12, fontWeight="normal")
+            .mark_text(align="right", baseline="middle", dx=-6, fontSize=10, fontWeight="normal")
             .encode(
                 x=alt.X("runde:O", sort="ascending"),
                 y=alt.Y(f"{value_column}:Q"),
@@ -206,9 +174,9 @@ def page():
             )
         )
         current_player_label = (
-            alt.Chart(earliest_points_df)
+            alt.Chart(latest_points_df)
             .transform_filter(alt.datum.is_current_player)
-            .mark_text(align="right", baseline="middle", dx=-10, fontSize=12, fontWeight="bold")
+            .mark_text(align="right", baseline="middle", dx=-6, fontSize=10, fontWeight="bold")
             .encode(
                 x=alt.X("runde:O", sort="ascending"),
                 y=alt.Y(f"{value_column}:Q"),
@@ -226,6 +194,7 @@ def page():
             course_chart_df, bane_order, player_order, chart_title = prepare_course_chart_df(course_chart_df, valgt_verdi)
             total_chart_df = course_chart_df[["spiller", "total"]].drop_duplicates().copy()
             total_chart_df["is_current_player"] = total_chart_df["spiller"].astype(str).eq(current_player)
+            total_chart_df["total_label"] = total_chart_df["total"].map(format_numeric_value)
 
             bars = (
                 alt.Chart(course_chart_df)
@@ -251,11 +220,11 @@ def page():
 
             total_labels = (
                 alt.Chart(total_chart_df)
-                .mark_text(dy=-8, fontSize=14, fontWeight="bold", color="white", baseline="bottom")
+                .mark_text(dy=-8, fontSize=12, fontWeight="bold", color="#183c34", baseline="bottom")
                 .encode(
                     x=alt.X("spiller:N", sort=player_order),
                     y=alt.Y("total:Q"),
-                    text=alt.Text("total:Q", format=".12~g"),
+                    text=alt.Text("total_label:N"),
                 )
             )
 

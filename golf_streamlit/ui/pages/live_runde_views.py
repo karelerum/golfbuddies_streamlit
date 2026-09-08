@@ -5,7 +5,7 @@ import html
 import pandas as pd
 import streamlit as st
 
-from aiapi.live_round import LiveRoundError, advance_to_next_live_round, confirm_live_hole, get_live_hole_points, save_live_score
+from aiapi.live_round import LiveRoundError, advance_to_next_live_round, confirm_live_hole, get_live_hole_points, save_live_hole_scores, save_live_score
 from config.constants import LIVE_ROUND_TYPE_6P
 from ui.components.html_visuals import all_scores_table, live_overview_table, register_btns
 from ui.pages.live_runde_data import _build_all_scores_rows, _build_overview_rows
@@ -91,7 +91,11 @@ def render_waiting_for_other_group_notice() -> None:
 
 
 @st.dialog("Velg hull")
-def _show_hole_picker(hole_key: str, holes: list[int], confirmed_holes: set[int]) -> None:
+def _show_hole_picker(
+    hole_key: str,
+    holes: list[int],
+    confirmed_holes: set[int],
+) -> None:
     for selected_hole in sorted(holes):
         label = f"Hull {selected_hole} ✅" if selected_hole in confirmed_holes else f"Hull {selected_hole}"
         if st.button(
@@ -127,7 +131,11 @@ def render_hole_navigation(
             help="Velg hull",
             width="stretch",
         ):
-            _show_hole_picker(hole_key, holes, confirmed_holes)
+            _show_hole_picker(
+                hole_key,
+                holes,
+                confirmed_holes,
+            )
         if is_last_hole:
             if st.button("Fullfør runde", key=f"finish_round_{hole_key}", help="Bekreft siste hull for egen gruppe", width="stretch"):
                 try:
@@ -198,6 +206,10 @@ def render_all_scores_editor(
         st.rerun()
 
 
+def _all_scores_registered(player_names: list[str], scores: dict[str, int]) -> bool:
+    return bool(player_names) and all(scores.get(player_name) is not None for player_name in player_names)
+
+
 def render_registration_keypad(
     live_rundeid: str,
     current_player: str,
@@ -207,6 +219,9 @@ def render_registration_keypad(
     par: int,
     component_key: str,
     synced_key: str,
+    hole_key: str,
+    holes: list[int],
+    show_all_key: str,
 ) -> None:
     """slag_pr_spiller_pr_runde_visning + regiter_knapper: begge tegnes av samme register_btns-komponent (én JS-widget)."""
     initial_scores = {}
@@ -220,16 +235,21 @@ def render_registration_keypad(
 
     result = register_btns(par=par, key=component_key, spillere=player_names, scores=initial_scores)
     if isinstance(result, dict):
-        synced_scores = st.session_state[synced_key]
-        for player_name, score_value in result.get("scores", {}).items():
-            if synced_scores.get(player_name) != score_value:
-                try:
-                    save_live_score(str(live_rundeid), str(current_player), player_name, hole, int(score_value))
-                except LiveRoundError as exc:
-                    st.error(str(exc))
-                else:
-                    synced_scores[player_name] = score_value
-                    st.rerun()
+        submitted_scores = result.get("scores", {})
+        if not _all_scores_registered(player_names, submitted_scores):
+            return
+        try:
+            save_live_hole_scores(str(live_rundeid), str(current_player), hole, submitted_scores)
+            confirm_live_hole(str(live_rundeid), str(current_player), hole)
+        except LiveRoundError as exc:
+            st.error(str(exc))
+            return
+        if hole == holes[-1]:
+            st.session_state[show_all_key] = True
+        else:
+            st.session_state[hole_key] = holes[holes.index(hole) + 1]
+        st.session_state.pop(synced_key, None)
+        st.rerun()
 
 
 def render_registration_mode(ctx: dict) -> None:
@@ -254,6 +274,9 @@ def render_registration_mode(ctx: dict) -> None:
         ctx["par"],
         component_key,
         synced_key=f"{component_key}_synced",
+        hole_key=ctx["hole_key"],
+        holes=ctx["holes"],
+        show_all_key=ctx["show_all_key"],
     )
 
 

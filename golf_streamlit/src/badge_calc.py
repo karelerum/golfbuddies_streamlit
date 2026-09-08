@@ -64,6 +64,7 @@ def _get_merker_tildelt_df(
     prioritet,
     aar,
     delturnering,
+    break_thresholds,
 ):
     aar_filter = _normalize_filter_token(aar)
     delturnering_filter = _normalize_filter_token(delturnering)
@@ -95,6 +96,9 @@ def _get_merker_tildelt_df(
             tildel = par_ind >= verdi
         elif kategori == 'antall_birdie' and pd.notna(verdi):
             tildel = birdie >= verdi
+        elif kategori in {'slag_total', 'antall_slag'} and pd.notna(verdi):
+            qualifying_thresholds = [threshold for threshold in break_thresholds if slag <= threshold]
+            tildel = bool(qualifying_thresholds) and verdi == min(qualifying_thresholds)
         elif kategori == 'type_par' and pd.notna(verdi):
             tildel = spiller_par == verdi
         elif kategori == 'unik' and filnavn == 'hole_in_one.png':
@@ -283,6 +287,14 @@ def calculate_achievements(df_spillere=None, df_resultater=None, df_merker=None)
             else:
                 continue
 
+            break_thresholds = sorted(
+                df_merker.loc[
+                    df_merker['kategori'].isin(['slag_total', 'antall_slag'])
+                    & (df_merker['vinner_innen'] == vinner_innen),
+                    'verdi',
+                ].dropna().tolist()
+            )
+
             spiller_merker = _get_merker_tildelt_df(
                 scope_df,
                 spiller_merker,
@@ -297,6 +309,7 @@ def calculate_achievements(df_spillere=None, df_resultater=None, df_merker=None)
                 prioritet,
                 aar,
                 delturnering,
+                break_thresholds,
             )
 
         if not spiller_merker.empty:

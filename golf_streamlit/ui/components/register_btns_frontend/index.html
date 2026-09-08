@@ -157,6 +157,7 @@
   let playerScores = {};
   let selectedPlayer = null;
   let scoresSeeded = false;
+  let serverScoresSignature = null;
   let lastArgs = {};
 
   function getAvailableHeight() {
@@ -273,7 +274,15 @@
         selectedPlayer = players[currentIndex + 1];
       }
       showMore = false;
-      setComponentValue({ scores: playerScores, current_player: selectedPlayer });
+      const holeIsComplete = players.every((player) => playerScores[player] !== undefined);
+      if (holeIsComplete) {
+        const result = { scores: Object.assign({}, playerScores), current_player: selectedPlayer };
+        if (badgeType) {
+          setTimeout(() => setComponentValue(result), 2000);
+        } else {
+          setComponentValue(result);
+        }
+      }
     } else {
       setComponentValue(String(score));
     }
@@ -285,9 +294,12 @@
     const par = Number(args.par);
     const maxScore = par + 6;
     const players = Array.isArray(args.spillere) ? args.spillere : [];
-    if (!scoresSeeded) {
+    const nextServerScoresSignature = JSON.stringify({ players, scores: args.scores || {} });
+    if (!scoresSeeded || serverScoresSignature !== nextServerScoresSignature) {
       playerScores = Object.assign({}, args.scores || {});
       scoresSeeded = true;
+      serverScoresSignature = nextServerScoresSignature;
+      selectedPlayer = null;
     }
     if (players.length > 0 && (selectedPlayer === null || !players.includes(selectedPlayer))) {
       selectedPlayer = players.find((player) => playerScores[player] === undefined) || players[0];
