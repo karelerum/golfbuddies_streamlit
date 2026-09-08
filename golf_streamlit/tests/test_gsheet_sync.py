@@ -1,6 +1,7 @@
 import unittest
 import sys
 import types
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pandas as pd
@@ -179,6 +180,15 @@ class SyncAllTests(unittest.TestCase):
 
 
 class BootstrapSyncTests(unittest.TestCase):
+    def setUp(self):
+        # app_meta lives in the real local SQLite db; keep these tests independent of any prior "last checked" state.
+        get_meta_patch = patch("aiapi.gsheet_sync.get_meta", return_value=None)
+        get_meta_patch.start()
+        self.addCleanup(get_meta_patch.stop)
+        set_meta_patch = patch("aiapi.gsheet_sync.set_meta")
+        set_meta_patch.start()
+        self.addCleanup(set_meta_patch.stop)
+
     @patch("aiapi.gsheet_sync.table_exists", return_value=True)
     @patch("aiapi.gsheet_sync.get_table_row_count", return_value=1)
     @patch("aiapi.gsheet_sync.get_latest_sqlite_audit_timestamp", return_value=None)
@@ -242,6 +252,39 @@ class BootstrapSyncTests(unittest.TestCase):
     @patch("aiapi.gsheet_sync.get_latest_sqlite_audit_timestamp", return_value="2026-08-02T10:05:00")
     def test_bootstrap_sync_runs_when_gsheet_has_no_audit_log(self, _latest_sqlite, _latest_gsheet):
         self.assertTrue(sqlite_needs_gsheet_bootstrap())
+
+
+class GsheetCheckIntervalTests(unittest.TestCase):
+    @patch("aiapi.gsheet_sync.set_meta")
+    @patch("aiapi.gsheet_sync.get_latest_gsheet_change_timestamp")
+    @patch("aiapi.gsheet_sync.get_latest_sqlite_audit_timestamp", return_value="2026-08-02T10:05:00")
+    @patch("aiapi.gsheet_sync.get_meta")
+    def test_skips_gsheet_lookup_when_checked_within_24_hours(self, get_meta_mock, _latest_sqlite, get_gsheet_change_mock, set_meta_mock):
+        get_meta_mock.return_value = (datetime.now(UTC) - timedelta(hours=1)).isoformat(timespec="seconds")
+
+        self.assertFalse(sqlite_needs_gsheet_bootstrap())
+        get_gsheet_change_mock.assert_not_called()
+        set_meta_mock.assert_not_called()
+
+    @patch("aiapi.gsheet_sync.set_meta")
+    @patch("aiapi.gsheet_sync.get_latest_gsheet_change_timestamp", return_value="2026-08-02T10:00:00")
+    @patch("aiapi.gsheet_sync.get_latest_sqlite_audit_timestamp", return_value="2026-08-02T10:00:00")
+    @patch("aiapi.gsheet_sync.get_meta")
+    def test_runs_gsheet_lookup_when_last_check_older_than_24_hours(self, get_meta_mock, _latest_sqlite, get_gsheet_change_mock, set_meta_mock):
+        get_meta_mock.return_value = (datetime.now(UTC) - timedelta(hours=25)).isoformat(timespec="seconds")
+
+        self.assertFalse(sqlite_needs_gsheet_bootstrap())
+        get_gsheet_change_mock.assert_called_once_with()
+        set_meta_mock.assert_called_once()
+
+    @patch("aiapi.gsheet_sync.set_meta")
+    @patch("aiapi.gsheet_sync.get_latest_gsheet_change_timestamp")
+    @patch("aiapi.gsheet_sync.get_latest_sqlite_audit_timestamp", return_value=None)
+    @patch("aiapi.gsheet_sync.get_meta", return_value=None)
+    def test_runs_gsheet_lookup_when_never_checked_before(self, get_meta_mock, _latest_sqlite, get_gsheet_change_mock, set_meta_mock):
+        self.assertTrue(sqlite_needs_gsheet_bootstrap())
+        set_meta_mock.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

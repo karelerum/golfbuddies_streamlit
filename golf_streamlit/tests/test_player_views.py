@@ -2,7 +2,12 @@ import unittest
 
 import pandas as pd
 
-from aiapi.player_views import build_player_round_history, filter_player_round_history, format_player_value_label
+from aiapi.player_views import (
+    build_player_round_history,
+    filter_player_badges_by_tournament_type,
+    filter_player_round_history,
+    format_player_value_label,
+)
 
 
 class PlayerViewsTests(unittest.TestCase):
@@ -61,6 +66,24 @@ class PlayerViewsTests(unittest.TestCase):
         self.assertEqual(summer_df["rundeid"].tolist(), ["20260101"])
         self.assertEqual(winter_df["rundeid"].tolist(), ["20250201"])
         self.assertEqual(both_df["rundeid"].tolist(), ["20260101", "20250201"])
+
+    def test_filter_player_badges_respects_season_and_keeps_total_badges(self):
+        badges_df = pd.DataFrame(
+            {
+                "filnavn": ["summer.png", "winter.png", "total.png"],
+                "turneringsid": ["202601.0", "202502", pd.NA],
+                "vinner_innen": ["runde", "turnering", "total"],
+            }
+        )
+        tournament_df = pd.DataFrame(
+            {"turneringsid": ["202601", "202502"], "type": ["Sommer", "Vinter"]}
+        )
+
+        summer_df = filter_player_badges_by_tournament_type(badges_df, tournament_df, "Bare Sommer")
+        winter_df = filter_player_badges_by_tournament_type(badges_df, tournament_df, "Bare Vinter")
+
+        self.assertEqual(summer_df["filnavn"].tolist(), ["summer.png", "total.png"])
+        self.assertEqual(winter_df["filnavn"].tolist(), ["winter.png", "total.png"])
 
     def test_format_player_value_label_formats_each_value_type(self):
         self.assertEqual(format_player_value_label("P6", 9), "9 P")

@@ -23,6 +23,44 @@ class Recalculate6PointsTests(unittest.TestCase):
         self.assertEqual(result.loc[result["spiller"] == "Tore", "p6"].iloc[0], 6)
         self.assertEqual(result.loc[result["spiller"] == "OleJ", "p6"].iloc[0], 0)
 
+    def test_two_way_tie_for_second_shares_points(self):
+        df = pd.DataFrame(
+            {
+                "rundeid": ["20260103"] * 4,
+                "hull": [1] * 4,
+                "spiller": ["Kaare", "Trude", "Knut", "Elin"],
+                "slag": [4, 5, 5, 6],
+                "par": [4, 4, 4, 4],
+            }
+        )
+
+        df = recalculate_placement(df)
+        result = recalculate_6points(df).set_index("spiller")["p6"]
+
+        self.assertEqual(result["Kaare"], 6)
+        self.assertEqual(result["Trude"], 4.5)
+        self.assertEqual(result["Knut"], 4.5)
+        self.assertEqual(result["Elin"], 3)
+
+    def test_three_way_tie_for_first_shares_points(self):
+        df = pd.DataFrame(
+            {
+                "rundeid": ["20260103"] * 4,
+                "hull": [1] * 4,
+                "spiller": ["Kaare", "Trude", "Knut", "Elin"],
+                "slag": [4, 4, 4, 6],
+                "par": [4, 4, 4, 4],
+            }
+        )
+
+        df = recalculate_placement(df)
+        result = recalculate_6points(df).set_index("spiller")["p6"]
+
+        self.assertEqual(result["Kaare"], 5.0)
+        self.assertEqual(result["Trude"], 5.0)
+        self.assertEqual(result["Knut"], 5.0)
+        self.assertEqual(result["Elin"], 3)
+
 
 class RecalculateSlagRoundPointsTests(unittest.TestCase):
     def test_points_are_written_to_p6_from_total_round_placement(self):

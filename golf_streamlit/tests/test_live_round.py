@@ -15,9 +15,11 @@ from aiapi.live_round import (
     get_live_round_candidates,
     get_live_round_details,
     reset_live_round,
+    save_live_hole_scores,
     update_live_round_setup,
 )
 from ui.pages.live_runde_data import _build_all_scores_rows, _build_overview_rows
+from ui.pages.live_runde_views import _all_scores_registered
 
 
 class LiveRoundTests(unittest.TestCase):
@@ -30,6 +32,66 @@ class LiveRoundTests(unittest.TestCase):
 
     def tearDown(self):
         self.live_sheet_backup.stop()
+
+    def test_all_scores_registered_requires_a_score_for_every_player(self):
+        self.assertFalse(_all_scores_registered(["Tore", "Kari"], {"Tore": 4}))
+        self.assertFalse(_all_scores_registered([], {}))
+        self.assertTrue(_all_scores_registered(["Tore", "Kari"], {"Tore": 4, "Kari": 5}))
+
+    @patch("aiapi.live_round._save_live_rounds_df")
+    @patch("aiapi.live_round._get_live_rounds_df")
+    @patch("aiapi.live_round.set_cached_df")
+    @patch("aiapi.live_round.my_dfs.save_table_df", return_value=True)
+    @patch("aiapi.live_round._get_par_by_hull", return_value={1: 4})
+    @patch("aiapi.live_round._get_round_score_df")
+    @patch("aiapi.live_round.get_live_round_access")
+    def test_save_live_hole_scores_saves_active_group_in_one_write(
+        self,
+        mock_get_access,
+        mock_get_score_df,
+        _mock_par_by_hull,
+        mock_save_table_df,
+        mock_set_cached_df,
+        mock_get_live_rounds_df,
+        _mock_save_live_rounds_df,
+    ):
+        round_setup = {"runde": 1, "score_table": "live_score_123", "gruppe_klar": {"1": [], "2": []}}
+        session = {"rundeoppsett": [round_setup]}
+        score_df = pd.DataFrame({"hull": [1], "Tore": [pd.NA], "Kari": [pd.NA], "Ola": [5]})
+        mock_get_access.return_value = {"session": session, "gruppe": 1, "spillere": ["Tore", "Kari"]}
+        mock_get_score_df.return_value = score_df
+        mock_get_live_rounds_df.return_value = pd.DataFrame({"live_rundeid": ["live_123"], "rundeoppsett": ["[]"]})
+
+        save_live_hole_scores("live_123", "Tore", 1, {"Tore": 4, "Kari": 3})
+
+        saved_score_df = mock_save_table_df.call_args.args[1]
+        self.assertEqual(mock_save_table_df.call_count, 1)
+        self.assertEqual(saved_score_df.loc[0, ["Tore", "Kari", "Ola"]].tolist(), [4, 3, 5])
+        self.assertEqual(mock_set_cached_df.call_args.args[0], "live_score_123")
+        self.assertEqual(mock_set_cached_df.call_args.args[1].loc[0, "Kari"], 3)
+
+    @patch("aiapi.live_round.my_dfs.save_table_df", return_value=True)
+    @patch("aiapi.live_round._get_par_by_hull", return_value={1: 4})
+    @patch("aiapi.live_round._get_round_score_df")
+    @patch("aiapi.live_round.get_live_round_access")
+    def test_save_live_hole_scores_rejects_incomplete_group_before_writing(
+        self,
+        mock_get_access,
+        mock_get_score_df,
+        _mock_par_by_hull,
+        mock_save_table_df,
+    ):
+        mock_get_access.return_value = {
+            "session": {"rundeoppsett": [{"runde": 1, "score_table": "live_score_123"}]},
+            "gruppe": 1,
+            "spillere": ["Tore", "Kari"],
+        }
+        mock_get_score_df.return_value = pd.DataFrame({"hull": [1], "Tore": [pd.NA], "Kari": [pd.NA]})
+
+        with self.assertRaisesRegex(LiveRoundError, "Alle spillere"):
+            save_live_hole_scores("live_123", "Tore", 1, {"Tore": 4})
+
+        mock_save_table_df.assert_not_called()
 
     @patch("aiapi.live_round._get_round_score_df")
     @patch(

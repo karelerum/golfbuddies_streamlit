@@ -60,6 +60,16 @@ SERVICE_ACCOUNT_PATHS = [
     Path("/etc/secrets/service_account.json"),
 ]
 
+# Minimum time between Google Sheets audit-log checks (skip network call if within this window)
+GSHEET_CHECK_INTERVAL_HOURS = 24
+
+# ============================================================================
+# Auth Constants
+# ============================================================================
+
+# How long a "remember me" login token stays valid on a device
+REMEMBER_ME_DAYS = 7
+
 # ============================================================================
 # Scoring System Constants
 # ============================================================================

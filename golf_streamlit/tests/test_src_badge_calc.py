@@ -397,6 +397,29 @@ class SrcBadgeCalcTests(unittest.TestCase):
         self.assertEqual(len(t1.loc[t1["merke_id"] == 302]), 1)
         self.assertEqual(len(t2.loc[t2["merke_id"] == 302]), 1)
 
+    def test_calculate_achievements_awards_only_the_best_qualifying_break_badge(self):
+        spillere_df = pd.DataFrame([{"Kallenavn": "Kåre"}])
+        resultater_df = pd.DataFrame(
+            [{"rundeid": "20260104", "turneringsid": "202601", "spiller": "Kåre", "slag": 87}]
+        )
+        merker_df = pd.DataFrame(
+            [
+                {"kategori": "antall_slag", "verdi": 75, "vinner_innen": "runde", "visningsnavn": "Break 75", "filnavn": "break_75.png", "merke_id": 75},
+                {"kategori": "antall_slag", "verdi": 80, "vinner_innen": "runde", "visningsnavn": "Break 80", "filnavn": "break_80.png", "merke_id": 80},
+                {"kategori": "antall_slag", "verdi": 90, "vinner_innen": "runde", "visningsnavn": "Break 90", "filnavn": "break_90.png", "merke_id": 90},
+                {"kategori": "antall_slag", "verdi": 100, "vinner_innen": "runde", "visningsnavn": "Break 100", "filnavn": "break_100.png", "merke_id": 100},
+            ]
+        )
+
+        achievements_df = badge_calc.calculate_achievements(
+            df_spillere=spillere_df,
+            df_resultater=resultater_df,
+            df_merker=merker_df,
+        )
+
+        self.assertEqual(achievements_df["filnavn"].tolist(), ["break_90.png"])
+        self.assertEqual(achievements_df["rundeid"].tolist(), ["20260104"])
+
 
 if __name__ == "__main__":
     unittest.main()

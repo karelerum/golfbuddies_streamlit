@@ -10,6 +10,7 @@ from aiapi.home_views import (
     prepare_course_chart_df,
     prepare_home_tournaments,
 )
+from ui.pages.hjem import _identifier_mask
 
 
 class HomeViewsTests(unittest.TestCase):
@@ -105,6 +106,13 @@ class HomeViewsTests(unittest.TestCase):
         self.assertEqual(format_numeric_value(pd.NA), "")
         self.assertEqual(format_numeric_value(5.0), "5")
         self.assertEqual(format_numeric_value(5.25), "5.2")
+
+    def test_identifier_mask_matches_sheet_round_id_with_decimal_suffix(self):
+        values = pd.Series(["20240101.0", "20240102", "annen-id"])
+
+        matches = _identifier_mask(values, "20240101")
+
+        self.assertEqual(matches.tolist(), [True, False, False])
 
 
 if __name__ == "__main__":

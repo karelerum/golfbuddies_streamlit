@@ -31,6 +31,12 @@ __all__ = [
     "table_has_column",
     "delete_from_sqlite_table",
     "table_exists",
+    "store_auth_token",
+    "get_player_for_token",
+    "delete_auth_tokens_for_player",
+    "delete_expired_auth_tokens",
+    "get_meta",
+    "set_meta",
 ]
 
 # Database location
@@ -267,6 +273,140 @@ def _handle_sqlite_error(operation: str, target: str, exc: Exception, *, strict:
     logger.error(str(wrapped_error))
     if strict:
         raise wrapped_error from exc
+
+
+# ============================================================================
+# AUTH TOKENS - "husk meg"-tokens for persistent innlogging
+# ============================================================================
+
+AUTH_TOKENS_TABLE = "auth_tokens"
+
+
+def _ensure_auth_tokens_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_quote_identifier(AUTH_TOKENS_TABLE)} (
+            token_hash TEXT PRIMARY KEY,
+            player_name TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        )
+        """
+    )
+
+
+def store_auth_token(token_hash: str, player_name: str, expires_at: str) -> bool:
+    try:
+        with db.connection() as conn:
+            _ensure_auth_tokens_table(conn)
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {_quote_identifier(AUTH_TOKENS_TABLE)}
+                    (token_hash, player_name, created_at, expires_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (str(token_hash), str(player_name), _utc_now_iso(), str(expires_at)),
+            )
+        return True
+    except Exception as e:
+        _handle_sqlite_error("lagring", f"auth-token for '{player_name}'", e, strict=False)
+        return False
+
+
+def get_player_for_token(token_hash: str) -> str | None:
+    """Returner spillernavn for en gyldig, ikke-utløpt token, ellers None."""
+    try:
+        with db.connection() as conn:
+            _ensure_auth_tokens_table(conn)
+            cursor = conn.execute(
+                f"SELECT player_name, expires_at FROM {_quote_identifier(AUTH_TOKENS_TABLE)} WHERE token_hash = ?",
+                (str(token_hash),),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            player_name, expires_at = row
+            if str(expires_at) <= _utc_now_iso():
+                return None
+            return str(player_name)
+    except Exception as e:
+        logger.error(f"Error reading auth token: {e}")
+        return None
+
+
+def delete_auth_tokens_for_player(player_name: str) -> bool:
+    try:
+        with db.connection() as conn:
+            _ensure_auth_tokens_table(conn)
+            conn.execute(
+                f"DELETE FROM {_quote_identifier(AUTH_TOKENS_TABLE)} WHERE player_name = ?",
+                (str(player_name),),
+            )
+        return True
+    except Exception as e:
+        _handle_sqlite_error("sletting", f"auth-tokens for '{player_name}'", e, strict=False)
+        return False
+
+
+def delete_expired_auth_tokens() -> bool:
+    try:
+        with db.connection() as conn:
+            _ensure_auth_tokens_table(conn)
+            conn.execute(
+                f"DELETE FROM {_quote_identifier(AUTH_TOKENS_TABLE)} WHERE expires_at <= ?",
+                (_utc_now_iso(),),
+            )
+        return True
+    except Exception as e:
+        _handle_sqlite_error("sletting", "utløpte auth-tokens", e, strict=False)
+        return False
+
+
+# ============================================================================
+# APP META - enkel key/value-tabell for f.eks. "sist sjekket mot Google Sheets"
+# ============================================================================
+
+APP_META_TABLE = "app_meta"
+
+
+def _ensure_app_meta_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_quote_identifier(APP_META_TABLE)} (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+        """
+    )
+
+
+def get_meta(key: str) -> str | None:
+    try:
+        with db.connection() as conn:
+            _ensure_app_meta_table(conn)
+            cursor = conn.execute(
+                f"SELECT value FROM {_quote_identifier(APP_META_TABLE)} WHERE key = ?",
+                (str(key),),
+            )
+            row = cursor.fetchone()
+            return str(row[0]) if row and row[0] is not None else None
+    except Exception as e:
+        logger.error(f"Error reading app_meta key '{key}': {e}")
+        return None
+
+
+def set_meta(key: str, value: str) -> bool:
+    try:
+        with db.connection() as conn:
+            _ensure_app_meta_table(conn)
+            conn.execute(
+                f"INSERT OR REPLACE INTO {_quote_identifier(APP_META_TABLE)} (key, value) VALUES (?, ?)",
+                (str(key), str(value)),
+            )
+        return True
+    except Exception as e:
+        _handle_sqlite_error("lagring", f"app_meta '{key}'", e, strict=False)
+        return False
 
 
 # ============================================================================

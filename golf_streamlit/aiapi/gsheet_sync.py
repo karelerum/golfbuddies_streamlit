@@ -10,7 +10,7 @@ Sheet names = Table names (direct mapping, no prefixes)
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 
@@ -22,8 +22,10 @@ from aiapi.gsheet import (
     is_internal_worksheet_name,
     list_worksheets,
 )
-from aiapi.sqlite import get_latest_sqlite_audit_timestamp, get_table_row_count, replace_sqlite_table_from_df, table_exists
-from config.constants import SHEETS_LIVE_ROUNDS_URL, SHEETS_MASTER_URL, SHEETS_ROUNDS_URL
+from aiapi.sqlite import get_latest_sqlite_audit_timestamp, get_meta, get_table_row_count, replace_sqlite_table_from_df, set_meta, table_exists
+from config.constants import GSHEET_CHECK_INTERVAL_HOURS, SHEETS_LIVE_ROUNDS_URL, SHEETS_MASTER_URL, SHEETS_ROUNDS_URL
+
+LAST_GSHEET_CHECK_META_KEY = "last_gsheet_check_at"
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -127,13 +129,34 @@ def get_latest_gsheet_change_timestamp() -> str | None:
     return max(existing_timestamps) if existing_timestamps else None
 
 
+def _gsheet_check_recently_done() -> bool:
+    """True hvis Google Sheets ble sjekket for endringer for mindre enn GSHEET_CHECK_INTERVAL_HOURS siden."""
+    last_checked_raw = get_meta(LAST_GSHEET_CHECK_META_KEY)
+    if not last_checked_raw:
+        return False
+    try:
+        last_checked_at = datetime.fromisoformat(last_checked_raw)
+    except ValueError:
+        return False
+    return datetime.now(UTC) - last_checked_at < timedelta(hours=GSHEET_CHECK_INTERVAL_HOURS)
+
+
+def _mark_gsheet_check_done() -> None:
+    set_meta(LAST_GSHEET_CHECK_META_KEY, datetime.now(UTC).isoformat(timespec="seconds"))
+
+
 def sqlite_needs_gsheet_bootstrap() -> bool:
     """Returner True når audit eller minimum lokal state mangler, eller Google Sheets er nyere enn SQLite."""
+    if _gsheet_check_recently_done():
+        return False
+
     latest_sqlite_change = get_latest_sqlite_audit_timestamp()
     if latest_sqlite_change is None:
+        _mark_gsheet_check_done()
         return True
 
     latest_gsheet_change = get_latest_gsheet_change_timestamp()
+    _mark_gsheet_check_done()
     if latest_gsheet_change is None:
         return True
 
