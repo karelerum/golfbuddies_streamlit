@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="utf-8" />
+<style>
+  :root { color-scheme: light; }
+  body {
+    margin: 0;
+    position: relative;
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  }
+  .score-card {
+    width: fit-content;
+    margin: 0 auto;
+    border: 1px solid #d7e2d9;
+    border-radius: 10px;
+    background: #ffffff;
+    padding: 12px;
+    box-sizing: border-box;
+    box-shadow: 0 2px 8px rgba(32, 53, 45, 0.06);
+  }
+  .register-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 104px));
+    justify-content: center;
+    gap: 8px;
+    padding: 4px;
+    box-sizing: border-box;
+    container-type: inline-size;
+  }
+  .register-btns-row {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 104px));
+    justify-content: center;
+    gap: 8px;
+  }
+  .register-btn {
+    width: 100%;
+    min-height: 44px;
+    margin: 0;
+    padding: 8px;
+    border: 1px solid #c4d8c8;
+    border-radius: 8px;
+    background: #f4f8f2;
+    color: #20352d;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    text-align: center;
+    box-sizing: border-box;
+    cursor: pointer;
+    font-family: inherit;
+    box-shadow: 0 2px 5px rgba(32, 53, 45, 0.08);
+    container-type: inline-size;
+  }
+  .register-btn:hover {
+    background: #e7f0e8;
+    border-color: #6c9b78;
+    box-shadow: 0 4px 9px rgba(36, 86, 74, 0.14);
+  }
+  .register-btn:focus-visible {
+    outline: 2px solid #6c9b78;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px #dcebdd, 0 3px 8px rgba(36, 86, 74, 0.12);
+  }
+  .register-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    background: #edf0ed;
+    color: #60736a;
+    border-color: #d7e2d9;
+  }
+  .register-btn.text-only {
+    font-size: clamp(11px, 13.5cqw, 14px);
+    font-weight: 600;
+    line-height: 1.2;
+  }
+  .register-value {
+    font-size: clamp(18px, 25cqw, 26px);
+    font-weight: 700;
+    line-height: 1;
+  }
+  .register-label {
+    font-size: clamp(9px, 11.5cqw, 12px);
+    line-height: 1.2;
+  }
+  .player-section {
+    margin-bottom: 12px;
+    padding: 0;
+    border-color: #b8cfc0;
+  }
+  .player-row {
+    display: grid;
+    justify-content: center;
+    box-sizing: border-box;
+  }
+  .player-cell {
+    padding: 10px 6px;
+    text-align: center;
+    border-right: 1px solid #d7e2d9;
+    box-sizing: border-box;
+    cursor: pointer;
+  }
+  .player-cell:last-child {
+    border-right: none;
+  }
+  .player-cell.selected {
+    background: #24564a;
+    border-radius: 6px;
+  }
+  .player-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: #20352d;
+  }
+  .player-score-value {
+    margin-top: 4px;
+    font-size: 24px;
+    font-weight: 700;
+    color: #20352d;
+  }
+  .player-cell.selected .player-name,
+  .player-cell.selected .player-score-value {
+    color: #ffffff;
+  }
+  .badge-pop-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 9999;
+  }
+  .badge-pop-image {
+    width: 82%;
+    max-width: 360px;
+    margin-top: 8px;
+    animation: badge-pop 2s ease-out forwards;
+  }
+  @keyframes badge-pop {
+    0%   { transform: scale(0.55); opacity: 0; }
+    20%  { transform: scale(var(--badge-peak-scale, 1.12)); opacity: 1; }
+    35%  { transform: scale(1.0); opacity: 1; }
+    80%  { transform: scale(1.0); opacity: 1; }
+    100% { transform: scale(0.92); opacity: 0; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+  let showMore = false;
+  let playerScores = {};
+  let selectedPlayer = null;
+  let scoresSeeded = false;
+  let lastArgs = {};
+
+  function getAvailableHeight() {
+    const fallback = 380;
+    try {
+      const frameEl = window.frameElement;
+      const parentHeight = window.parent.innerHeight;
+      if (frameEl && parentHeight) {
+        const top = frameEl.getBoundingClientRect().top;
+        return Math.max(220, parentHeight - top - 12);
+      }
+    } catch (error) {
+      // Cross-origin parent; fall back to a fixed height.
+    }
+    return fallback;
+  }
+
+  function sendMessageToStreamlit(type, data) {
+    const outboundData = Object.assign({ isStreamlitMessage: true, type }, data);
+    window.parent.postMessage(outboundData, "*");
+  }
+
+  function setComponentValue(value) {
+    sendMessageToStreamlit("streamlit:setComponentValue", { value, dataType: "json" });
+  }
+
+  function setFrameHeight() {
+    sendMessageToStreamlit("streamlit:setFrameHeight", { height: document.documentElement.scrollHeight });
+  }
+
+  function scoreLabel(score, par) {
+    if (score === 1) return "Hole in one";
+    const labels = { "-3": "Albatross", "-2": "Eagle", "-1": "Birdie", "0": "Par", "1": "Bogey", "2": "Dobbel bogey", "3": "Trippel bogey" };
+    const difference = score - par;
+    if (difference >= 4) return `${difference} x bogey`;
+    if (difference in labels) return labels[difference];
+    return `${difference > 0 ? "+" : ""}${difference} mot par`;
+  }
+
+  const BADGE_POP_STYLE = {
+    birdie: { glow: "#2f7758", peakScale: 1.12 },
+    eagle: { glow: "#caa85e", peakScale: 1.22 },
+    hole_in_one: { glow: "#caa85e", peakScale: 1.35 },
+  };
+
+  function badgeTypeForScore(score, par) {
+    if (score === 1) return "hole_in_one";
+    const difference = score - par;
+    if (difference === -2) return "eagle";
+    if (difference === -1) return "birdie";
+    return null;
+  }
+
+  function showBadgePop(badgeType, args) {
+    const dataUri = args.badges && args.badges[badgeType];
+    if (!dataUri) return;
+    const style = BADGE_POP_STYLE[badgeType];
+    const overlay = document.createElement("div");
+    overlay.className = "badge-pop-overlay";
+    const img = document.createElement("img");
+    img.className = "badge-pop-image";
+    img.src = dataUri;
+    img.alt = badgeType;
+    img.style.setProperty("--badge-peak-scale", style.peakScale);
+    img.style.filter = `drop-shadow(0 0 20px ${style.glow})`;
+    overlay.appendChild(img);
+    document.body.appendChild(overlay);
+    overlay.addEventListener("animationend", () => overlay.remove(), { once: true });
+    setTimeout(() => overlay.remove(), 2200);
+  }
+
+  function buildPlayerSection(players, args) {
+    const section = document.createElement("div");
+    section.className = "player-section score-card";
+    const columns = `repeat(${players.length}, minmax(0, 104px))`;
+
+    const playerRow = document.createElement("div");
+    playerRow.className = "player-row";
+    playerRow.style.gridTemplateColumns = columns;
+
+    players.forEach((player) => {
+      const cell = document.createElement("div");
+      cell.className = "player-cell" + (player === selectedPlayer ? " selected" : "");
+      cell.addEventListener("click", () => {
+        selectedPlayer = player;
+        showMore = false;
+        renderComponent(args);
+      });
+
+      const nameEl = document.createElement("div");
+      nameEl.className = "player-name";
+      nameEl.textContent = player;
+
+      const scoreEl = document.createElement("div");
+      scoreEl.className = "player-score-value";
+      scoreEl.textContent = playerScores[player] !== undefined ? String(playerScores[player]) : "-";
+
+      cell.appendChild(nameEl);
+      cell.appendChild(scoreEl);
+      playerRow.appendChild(cell);
+    });
+
+    section.appendChild(playerRow);
+    return section;
+  }
+
+  function handleScoreClick(score, players, args) {
+    const badgeType = badgeTypeForScore(score, Number(args.par));
+    if (badgeType) showBadgePop(badgeType, args);
+    if (players.length > 0 && selectedPlayer) {
+      playerScores[selectedPlayer] = score;
+      const currentIndex = players.indexOf(selectedPlayer);
+      if (currentIndex > -1 && currentIndex < players.length - 1) {
+        selectedPlayer = players[currentIndex + 1];
+      }
+      showMore = false;
+      setComponentValue({ scores: playerScores, current_player: selectedPlayer });
+    } else {
+      setComponentValue(String(score));
+    }
+    renderComponent(args);
+  }
+
+  function renderComponent(args) {
+    lastArgs = args;
+    const par = Number(args.par);
+    const maxScore = par + 6;
+    const players = Array.isArray(args.spillere) ? args.spillere : [];
+    if (!scoresSeeded) {
+      playerScores = Object.assign({}, args.scores || {});
+      scoresSeeded = true;
+    }
+    if (players.length > 0 && (selectedPlayer === null || !players.includes(selectedPlayer))) {
+      selectedPlayer = players.find((player) => playerScores[player] === undefined) || players[0];
+    }
+
+    const root = document.getElementById("root");
+    root.innerHTML = "";
+
+    let playerSectionHeight = 0;
+    if (players.length > 0) {
+      const section = buildPlayerSection(players, args);
+      root.appendChild(section);
+      playerSectionHeight = section.getBoundingClientRect().height;
+    }
+
+    const keypad = document.createElement("div");
+    keypad.className = "register-grid";
+
+    const keypadScores = showMore ? [10, 11] : [1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const totalRows = Math.ceil(keypadScores.length / 3) + 1;
+    const rowGap = 8;
+    const gridPadding = 8;
+    const availableForButtons = getAvailableHeight() - playerSectionHeight - gridPadding - rowGap * (totalRows - 1);
+    const buttonHeight = Math.max(44, Math.min(104, Math.floor(availableForButtons / totalRows)));
+
+    keypadScores.forEach((score) => {
+      const button = document.createElement("button");
+      button.className = "register-btn";
+      button.style.height = `${buttonHeight}px`;
+      button.disabled = score > maxScore;
+      button.innerHTML = `<div class="register-value">${score}</div><div class="register-label">${button.disabled ? "Over maks" : scoreLabel(score, par)}</div>`;
+      button.addEventListener("click", () => handleScoreClick(score, players, args));
+      keypad.appendChild(button);
+    });
+
+    const controlRow = document.createElement("div");
+    controlRow.className = "register-btns-row";
+    const toggleButton = document.createElement("button");
+    toggleButton.className = "register-btn text-only";
+    toggleButton.style.gridColumn = "2";
+    toggleButton.style.height = `${buttonHeight}px`;
+    toggleButton.textContent = showMore ? "Tilbake" : "Mer";
+    toggleButton.addEventListener("click", () => {
+      showMore = !showMore;
+      renderComponent(args);
+    });
+    controlRow.appendChild(toggleButton);
+    keypad.appendChild(controlRow);
+    root.appendChild(keypad);
+
+    setFrameHeight();
+  }
+
+  window.addEventListener("resize", () => renderComponent(lastArgs));
+
+  window.addEventListener("message", (event) => {
+    const message = event.data;
+    if (!message || message.type !== "streamlit:render") return;
+    renderComponent(message.args || {});
+  });
+
+  window.addEventListener("load", () => {
+    sendMessageToStreamlit("streamlit:componentReady", { apiVersion: 1 });
+    setFrameHeight();
+  });
+</script>
+</body>
+</html>

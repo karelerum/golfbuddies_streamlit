@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="utf-8" />
+<style>
+  :root { color-scheme: light; }
+  body {
+    margin: 0;
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    color: #20352d;
+  }
+  .scores-card {
+    width: 100%;
+    border: 1px solid #b8cfc0;
+    border-radius: 8px;
+    background: #ffffff;
+    box-sizing: border-box;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(32, 53, 45, 0.06);
+  }
+  .scores-scroll {
+    width: 100%;
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    min-width: 300px;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  th,
+  td {
+    border-bottom: 1px solid #d7e2d9;
+    border-right: 1px solid #d7e2d9;
+    padding: 6px;
+    text-align: center;
+    vertical-align: middle;
+    box-sizing: border-box;
+  }
+  th:last-child,
+  td:last-child { border-right: none; }
+  tbody tr:last-child td,
+  tbody tr:last-child th { border-bottom: none; }
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #e7f0e8;
+    color: #183c34;
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .hole-header,
+  .hole-cell {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    width: 58px;
+    min-width: 58px;
+    background: #e7f0e8;
+    color: #60736a;
+    font-weight: 800;
+  }
+  .hole-header { z-index: 3; }
+  .par-note {
+    display: block;
+    margin-top: 2px;
+    color: #60736a;
+    font-size: 10px;
+    font-weight: 700;
+  }
+  .score-input {
+    width: 100%;
+    min-width: 48px;
+    max-width: 74px;
+    height: 34px;
+    border: 1px solid #b8cfc0;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #20352d;
+    font: inherit;
+    font-size: 17px;
+    font-weight: 800;
+    text-align: center;
+    box-sizing: border-box;
+    outline: none;
+    box-shadow: 0 1px 3px rgba(32, 53, 45, 0.04);
+    -moz-appearance: textfield;
+  }
+  .score-input::-webkit-outer-spin-button,
+  .score-input::-webkit-inner-spin-button {
+    margin: 0;
+    -webkit-appearance: none;
+  }
+  .score-input:hover { border-color: #6c9b78; }
+  .score-input:focus {
+    border-color: #24564a;
+    box-shadow: 0 0 0 2px #dcebdd, 0 2px 6px rgba(36, 86, 74, 0.1);
+  }
+  .score-readonly {
+    display: inline-flex;
+    width: 100%;
+    min-width: 48px;
+    max-width: 74px;
+    height: 34px;
+    align-items: center;
+    justify-content: center;
+    color: #20352d;
+    font-size: 17px;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .score-readonly.empty {
+    color: #9aa9a0;
+    font-weight: 600;
+  }
+  .score-readonly-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-height: 44px;
+    padding: 2px 0;
+  }
+  .score-symbol {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    font-size: 19px;
+    font-weight: 900;
+    line-height: 1;
+    box-sizing: border-box;
+    user-select: none;
+    letter-spacing: -0.02em;
+  }
+  .score-symbol.green {
+    background: #dff7e5;
+    color: #14613d;
+    border: 2px solid #2e8f59;
+    border-radius: 50%;
+  }
+  .score-symbol.green.double {
+    background: #dff7e5;
+    color: #14613d;
+    border: 2px solid #2e8f59;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px #2e8f59;
+  }
+  .score-symbol.red {
+    background: transparent;
+    color: #111827;
+    border: 2px solid #cf4e4e;
+    border-radius: 4px;
+  }
+  .score-symbol.red.double {
+    background: transparent;
+    color: #111827;
+    border: 2px solid #cf4e4e;
+    border-radius: 4px;
+    box-shadow: 0 0 0 2px #cf4e4e;
+  }
+  .score-caption {
+    color: #6f7d76;
+    font-size: 9px;
+    line-height: 1.1;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: lowercase;
+    margin-top: 4px;
+  }
+  .score-caption.strong {
+    font-size: 10px;
+    color: #5a6661;
+  }
+  .score-input.invalid {
+    border-color: #b94a42;
+    background: #fff0ee;
+    color: #8f3934;
+  }
+  .empty-state {
+    padding: 12px;
+    text-align: center;
+    color: #60736a;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+  let lastArgs = {};
+
+  function sendMessageToStreamlit(type, data) {
+    const outboundData = Object.assign({ isStreamlitMessage: true, type }, data);
+    window.parent.postMessage(outboundData, "*");
+  }
+
+  function setComponentValue(value) {
+    sendMessageToStreamlit("streamlit:setComponentValue", { value, dataType: "json" });
+  }
+
+  function setFrameHeight() {
+    sendMessageToStreamlit("streamlit:setFrameHeight", { height: document.documentElement.scrollHeight });
+  }
+
+  function isValidScore(rawValue, maxScore) {
+    if (rawValue === "") return false;
+    const numberValue = Number(rawValue);
+    return Number.isInteger(numberValue) && numberValue >= 1 && (maxScore === null || numberValue <= maxScore);
+  }
+
+  function commitInput(input) {
+    const rawValue = input.value.trim();
+    const maxScore = input.dataset.maxScore === "" ? null : Number(input.dataset.maxScore);
+    const previousValue = input.dataset.previousValue;
+
+    if (rawValue === "" && previousValue === "") return;
+
+    if (!isValidScore(rawValue, maxScore)) {
+      input.classList.add("invalid");
+      return;
+    }
+
+    input.classList.remove("invalid");
+    if (rawValue === previousValue) return;
+
+    input.dataset.previousValue = rawValue;
+    setComponentValue({
+      event_id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      player: input.dataset.player,
+      hull: Number(input.dataset.hull),
+      score: Number(rawValue),
+    });
+  }
+
+  function buildScoreBadge(scoreValue, parValue) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "score-readonly-wrap";
+
+    const scoreNumber = Number(scoreValue);
+    const parNumber = Number(parValue);
+    if (!Number.isFinite(scoreNumber) || !Number.isFinite(parNumber)) {
+      const plain = document.createElement("span");
+      plain.className = "score-readonly empty";
+      plain.textContent = "-";
+      wrapper.appendChild(plain);
+      return wrapper;
+    }
+
+    const relative = scoreNumber - parNumber;
+    const isBirdie = relative === -1;
+    const isEagle = relative === -2;
+    const isBogey = relative === 1;
+    const isDoubleBogey = relative === 2;
+    const isBigBogey = relative >= 3;
+
+    if (isBirdie) {
+      const symbol = document.createElement("div");
+      symbol.className = "score-symbol green";
+      symbol.textContent = String(scoreNumber);
+      const caption = document.createElement("div");
+      caption.className = "score-caption";
+      caption.textContent = "birdie";
+      wrapper.appendChild(symbol);
+      wrapper.appendChild(caption);
+      return wrapper;
+    }
+
+    if (isEagle) {
+      const symbol = document.createElement("div");
+      symbol.className = "score-symbol green double";
+      symbol.textContent = String(scoreNumber);
+      const caption = document.createElement("div");
+      caption.className = "score-caption";
+      caption.textContent = "eagle";
+      wrapper.appendChild(symbol);
+      wrapper.appendChild(caption);
+      return wrapper;
+    }
+
+    if (isBogey) {
+      const symbol = document.createElement("div");
+      symbol.className = "score-symbol red";
+      symbol.textContent = String(scoreNumber);
+      wrapper.appendChild(symbol);
+      return wrapper;
+    }
+
+    if (isDoubleBogey) {
+      const symbol = document.createElement("div");
+      symbol.className = "score-symbol red double";
+      symbol.textContent = String(scoreNumber);
+      wrapper.appendChild(symbol);
+      return wrapper;
+    }
+
+    if (isBigBogey) {
+      const symbol = document.createElement("div");
+      symbol.className = "score-symbol red double";
+      symbol.textContent = String(scoreNumber);
+      const caption = document.createElement("div");
+      caption.className = "score-caption strong";
+      caption.textContent = `+${relative}`;
+      wrapper.appendChild(symbol);
+      wrapper.appendChild(caption);
+      return wrapper;
+    }
+
+    const plain = document.createElement("span");
+    plain.className = "score-readonly";
+    plain.textContent = String(scoreNumber);
+    wrapper.appendChild(plain);
+    return wrapper;
+  }
+
+  function renderComponent(args) {
+    lastArgs = args;
+    const rows = Array.isArray(args.rows) ? args.rows : [];
+    const players = Array.isArray(args.players) ? args.players : (Array.isArray(args.spillere) ? args.spillere : []);
+    const root = document.getElementById("root");
+    root.innerHTML = "";
+
+    const card = document.createElement("div");
+    card.className = "scores-card";
+    if (rows.length === 0 || players.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "Ingen slag å vise";
+      card.appendChild(empty);
+      root.appendChild(card);
+      setFrameHeight();
+      return;
+    }
+
+    const scroll = document.createElement("div");
+    scroll.className = "scores-scroll";
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    const hullHeader = document.createElement("th");
+    hullHeader.className = "hole-header";
+    hullHeader.textContent = "Hull";
+    headRow.appendChild(hullHeader);
+
+    players.forEach((player) => {
+      const th = document.createElement("th");
+      th.textContent = player;
+      th.title = player;
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      const hullCell = document.createElement("th");
+      hullCell.className = "hole-cell";
+      hullCell.textContent = String(row.hull);
+      if (row.par !== null && row.par !== undefined) {
+        const parNote = document.createElement("span");
+        parNote.className = "par-note";
+        parNote.textContent = `Par ${row.par}`;
+        hullCell.appendChild(parNote);
+      }
+      tr.appendChild(hullCell);
+
+      players.forEach((player) => {
+        const td = document.createElement("td");
+        const value = row.scores && row.scores[player] !== null && row.scores[player] !== undefined ? String(row.scores[player]) : "";
+        if (!args.editable) {
+          const valueElement = document.createElement("span");
+          valueElement.className = `score-readonly${value === "" ? " empty" : ""}`;
+          const resolvedValue = value === "" ? "" : Number(value);
+          if (value !== "" && Number.isFinite(resolvedValue) && row.par !== null && row.par !== undefined) {
+            const badge = buildScoreBadge(resolvedValue, row.par);
+            badge.setAttribute("aria-label", `${player}, hull ${row.hull}: ${resolvedValue} (${row.par}-par)`);
+            td.appendChild(badge);
+          } else {
+            valueElement.textContent = value || "-";
+            valueElement.setAttribute("aria-label", `${player}, hull ${row.hull}: ${value || "ikke registrert"}`);
+            td.appendChild(valueElement);
+          }
+        } else {
+          const input = document.createElement("input");
+          input.className = "score-input";
+          input.type = "text";
+          input.inputMode = "numeric";
+          input.pattern = "[0-9]*";
+          input.value = value;
+          input.placeholder = "-";
+          input.dataset.previousValue = value;
+          input.dataset.player = player;
+          input.dataset.hull = String(row.hull);
+          input.dataset.maxScore = row.max_score === null || row.max_score === undefined ? "" : String(row.max_score);
+          input.setAttribute("aria-label", `${player}, hull ${row.hull}`);
+          if (row.max_score !== null && row.max_score !== undefined) {
+            input.title = `1-${row.max_score}`;
+          }
+          input.addEventListener("input", () => input.classList.remove("invalid"));
+          input.addEventListener("blur", () => commitInput(input));
+          input.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitInput(input);
+              input.blur();
+            }
+            if (event.key === "Escape") {
+              input.value = input.dataset.previousValue;
+              input.classList.remove("invalid");
+              input.blur();
+            }
+          });
+          td.appendChild(input);
+        }
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    scroll.appendChild(table);
+    card.appendChild(scroll);
+    root.appendChild(card);
+    setFrameHeight();
+  }
+
+  window.addEventListener("resize", () => renderComponent(lastArgs));
+
+  window.addEventListener("message", (event) => {
+    const message = event.data;
+    if (!message || message.type !== "streamlit:render") return;
+    renderComponent(message.args || {});
+  });
+
+  window.addEventListener("load", () => {
+    sendMessageToStreamlit("streamlit:componentReady", { apiVersion: 1 });
+    setFrameHeight();
+  });
+</script>
+</body>
+</html>
