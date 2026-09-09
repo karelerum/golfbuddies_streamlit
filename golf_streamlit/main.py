@@ -1,15 +1,8 @@
 import streamlit as st
 
 from aiapi.auth import PASSWORD_LOGIN_EVENT_KEY, require_login_page
-from aiapi.gsheet_sync import sync_all_gsheets_to_sqlite
 from aiapi.sqlite import delete_expired_auth_tokens, is_sqlite_ready_for_app
-import ui.components.visuals as v
 from ui.components.theme import apply_global_styles
-import ui.pages.hjem as mainpage_hjem
-import ui.pages.live_runde as mainpage_live_runde
-import ui.pages_adm.adm as mainpage_adm
-import ui.pages.registrer_slag as mainpage_registrer_slag
-import ui.pages.spiller as mainpage_spiller
 
 
 SQLITE_BOOTSTRAP_SESSION_KEY = "sqlite_bootstrap_checked"
@@ -28,6 +21,8 @@ def ensure_sqlite_ready_for_login() -> bool:
     if is_sqlite_ready_for_app():
         st.session_state[SQLITE_BOOTSTRAP_SESSION_KEY] = True
         return True
+
+    from aiapi.gsheet_sync import sync_all_gsheets_to_sqlite
 
     with st.spinner("Gjenoppretter lokale data fra Google Sheets ..."):
         bootstrap_report = sync_all_gsheets_to_sqlite()
@@ -50,14 +45,6 @@ def ensure_sqlite_ready_for_login() -> bool:
 st.set_page_config(page_title="Golf Streamlit", layout="wide")
 apply_global_styles()
 
-MAIN_PAGES = {
-    "Hjem": mainpage_hjem.page,
-    "Registrer slag": mainpage_registrer_slag.page,
-    "Live Runde": mainpage_live_runde.page,
-    "Spiller": mainpage_spiller.page,
-    "Adm": mainpage_adm.page,
-}
-
 # A valid cookie returns before the login callback, so it never loads the logo or checks/reloads SQLite.
 current_player = require_login_page(stop=False, before_login=ensure_sqlite_ready_for_login)
 if current_player is None:
@@ -68,7 +55,24 @@ delete_expired_auth_tokens()
 if st.session_state.pop(PASSWORD_LOGIN_EVENT_KEY, False):
     st.toast(f"Velkommen {current_player}", icon=":material/waving_hand:")
 
-v.hoved_navbar(["Hjem", "Registrer slag", "Live Runde", "Spiller"], current_player)
-selected_page = MAIN_PAGES.get(st.session_state.choosen_mainpage)
-if selected_page is not None:
-    selected_page()
+with st.spinner("Laster ...", show_time=False):
+    import ui.components.visuals as v
+
+    v.hoved_navbar(["Hjem", "Registrer slag", "Live Runde", "Spiller"], current_player)
+
+    selected_page_name = st.session_state.choosen_mainpage
+    if selected_page_name == "Hjem":
+        from ui.pages.hjem import page
+    elif selected_page_name == "Registrer slag":
+        from ui.pages.registrer_slag import page
+    elif selected_page_name == "Live Runde":
+        from ui.pages.live_runde import page
+    elif selected_page_name == "Spiller":
+        from ui.pages.spiller import page
+    elif selected_page_name == "Adm":
+        from ui.pages_adm.adm import page
+    else:
+        page = None
+
+    if page is not None:
+        page()

@@ -9,6 +9,7 @@ Sheet names = Table names (direct mapping, no prefixes)
 
 import logging
 import re
+import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -29,6 +30,7 @@ LAST_GSHEET_CHECK_META_KEY = "last_gsheet_check_at"
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+_FULL_READ_SYNC_LOCK = threading.Lock()
 
 
 
@@ -275,7 +277,7 @@ def read_sync_gsheet_to_sqlite_sheet_group(sheet_url: str, sheet_type: str = "")
         df = sheet_dfs.get(sheet_name, pd.DataFrame())
         try:
             if not df.empty:
-                saved = replace_sqlite_table_from_df(df, sheet_name)
+                saved = replace_sqlite_table_from_df(df, sheet_name, strict=True)
                 if not saved:
                     logger.error(f"Kunne ikke lagre {sheet_type} sheet '{sheet_name}' til SQLite")
                     report.add_issue("error", f"{sheet_type}/save", "Kunne ikke lagre til SQLite", sheet_name)
@@ -354,7 +356,8 @@ def read_sync_gsheet_to_sqlite_all() -> SyncReport:
 
 def sync_all_gsheets_to_sqlite() -> SyncReport:
     """Backward-compatible wrapper. Foretrekk read_sync_gsheet_to_sqlite_all()."""
-    return read_sync_gsheet_to_sqlite_all()
+    with _FULL_READ_SYNC_LOCK:
+        return read_sync_gsheet_to_sqlite_all()
 
 
 if __name__ == "__main__":
