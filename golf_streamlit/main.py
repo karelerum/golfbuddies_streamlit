@@ -57,20 +57,19 @@ delete_expired_auth_tokens()
 
 current_mainpage = st.session_state.get("choosen_mainpage")
 live_session_payload = build_live_round_session_payload(st.session_state, current_player)
-clear_live_session = current_mainpage is not None and (
+live_session_restored = st.session_state.get(LIVE_SESSION_RESTORED_KEY, False)
+clear_live_session = live_session_restored and current_mainpage is not None and (
     current_mainpage != "Live Runde" or live_session_payload is None
 )
 stored_live_session = live_round_session(
     payload=live_session_payload,
     clear=clear_live_session,
 )
-if not isinstance(stored_live_session, dict) or not stored_live_session.get("ready"):
-    st.stop()
 
-if not st.session_state.get(LIVE_SESSION_RESTORED_KEY):
+if not live_session_restored and isinstance(stored_live_session, dict) and stored_live_session.get("ready"):
     restored_live_session = validate_live_round_session_payload(stored_live_session.get("payload"), current_player)
     st.session_state[LIVE_SESSION_RESTORED_KEY] = True
-    if restored_live_session and not clear_live_session:
+    if restored_live_session:
         st.session_state.update(
             choosen_mainpage="Live Runde",
             live_session_id=restored_live_session["live_rundeid"],
