@@ -15,7 +15,6 @@ Tests cover:
 """
 import sqlite3
 import pandas as pd
-import numpy as np
 import logging
 
 logger = logging.getLogger(__name__)
@@ -49,20 +48,29 @@ def recalculate_6points(df: pd.DataFrame) -> pd.DataFrame:
         DataFrame with updated p6 column
     """
     base_points = {1: 6, 2: 5, 3: 4, 4: 3, 5: 2, 6: 1}
-    # points beyond plass 6 are always 0, so the running total caps out there
-    prefix_sums = np.concatenate(([0], np.cumsum([base_points.get(pos, 0) for pos in range(1, 7)])))
+    
+    p6_values = {}
+    for (rundeid_val, hull_val), group in df.groupby(["rundeid", "hull"]):
+        for idx, row in group.iterrows():
+            plass = row['plass']
 
-    def _prefix(positions: pd.Series) -> np.ndarray:
-        return prefix_sums[positions.clip(lower=0, upper=6).astype(int).to_numpy()]
-
-    plass = df["plass"]
-    ties_at_plass = df.groupby(["rundeid", "hull", "plass"])["plass"].transform("count")
-
-    total_points = _prefix(plass + ties_at_plass - 1) - _prefix(plass - 1)
-    avg_points = np.divide(total_points, ties_at_plass, out=np.zeros(len(df), dtype=float), where=ties_at_plass.to_numpy() > 0)
-
-    penalty_mask = (df["slag"] > df["par"] + 5).to_numpy()
-    df["p6"] = np.where(penalty_mask, 0, avg_points)
+            if row["slag"] > row["par"] + 5:
+                p6_values[idx] = 0
+                continue
+            
+            # Count how many players tie at this position
+            ties_at_plass = (group['plass'] == plass).sum()
+            
+            # Sum points for positions from plass to plass+ties-1
+            total_points = 0
+            for pos in range(plass, plass + ties_at_plass):
+                total_points += base_points.get(pos, 0)
+            
+            # Distribute equally among tied players
+            avg_points = total_points / ties_at_plass if ties_at_plass > 0 else 0
+            p6_values[idx] = avg_points
+    
+    df["p6"] = df.index.map(lambda idx: p6_values.get(idx, 0))
     return df
 
 

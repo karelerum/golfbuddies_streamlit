@@ -6,6 +6,7 @@ import streamlit as st
 from aiapi.auth import get_logged_in_player
 from aiapi.back_df_round import _is_admin_player
 from aiapi.live_round import LiveRoundError, delete_live_round, get_active_live_rounds
+from ui.pages import html_visual_test as subpage_html_visual_test
 import ui.pages.live_runde_slag as subpage_live_runde_slag
 import ui.pages.live_runde_slag_slutt as subpage_live_runde_slag_slutt
 import ui.pages.setup_live_runde as subpage_setup_live_runde
@@ -15,6 +16,7 @@ LIVE_ROUND_VIEWS = {
     "setup": subpage_setup_live_runde.page,
     "slag": subpage_live_runde_slag.page,
     "slag_slutt": subpage_live_runde_slag_slutt.page,
+    "visual_test": subpage_html_visual_test.page,
 }
 
 _ROUND_CARD_STYLE = """
@@ -180,6 +182,9 @@ def page():
         if admin_actions.button("Lag ny live runde", type="primary"):
             st.session_state.pop("live_edit_rundeid", None)
             st.session_state.live_runde_view = "setup"
+            st.rerun()
+        if admin_actions.button("Test UI-komponenter"):
+            st.session_state.live_runde_view = "visual_test"
             st.rerun()
 
     _show_round_cards(is_admin)

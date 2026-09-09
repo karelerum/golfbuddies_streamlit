@@ -2,7 +2,6 @@ import os
 
 import streamlit as st
 
-from aiapi.player_views import PLAYER_TOURNAMENT_FILTERS, filter_player_badges_by_tournament_type
 from src import my_dfs
 
 _BADGES_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "assets", "badges")
@@ -25,15 +24,6 @@ def page():
 
     st.title("Merker")
 
-    tournament_filter_label = st.segmented_control(
-        "Velg sesong",
-        options=list(PLAYER_TOURNAMENT_FILTERS),
-        selection_mode="single",
-        default="Begge",
-        label_visibility="collapsed",
-        key="player_badges_tournament_filter",
-    ) or "Begge"
-
     spillermerker_df = my_dfs.get_spillermerker_df()
     if spillermerker_df is None or spillermerker_df.empty:
         st.info("Ingen merker funnet.")
@@ -43,11 +33,6 @@ def page():
     player_df = spillermerker_df.loc[
         spillermerker_df["spiller"].astype(str).str.strip().eq(str(current_player).strip())
     ].copy()
-    player_df = filter_player_badges_by_tournament_type(
-        player_df,
-        my_dfs.get_tournament_info_df(),
-        tournament_filter_label,
-    )
 
     if player_df.empty:
         st.info("Du har ingen merker ennå.")

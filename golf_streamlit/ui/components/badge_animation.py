@@ -10,10 +10,6 @@ _BADGE_FILES = {
     "hole_in_one": "hole_in_one.png",
     "eagle": "eagle.png",
     "birdie": "1_birdie.png",
-    "break_75": "break_75.png",
-    "break_80": "break_80.png",
-    "break_90": "break_90.png",
-    "break_100": "break_100.png",
 }
 
 

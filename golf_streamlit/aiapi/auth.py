@@ -1,19 +1,10 @@
 import base64
-import hashlib
-import secrets
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import streamlit as st
 
-from aiapi.sqlite import delete_auth_tokens_for_player, get_player_for_token, store_auth_token
-from config.constants import REMEMBER_ME_DAYS
-
 
 AUTH_SESSION_KEY = "auth_logged_in_ind"
-REMEMBER_ME_COOKIE_NAME = "golf_remember_token"
-PASSWORD_LOGIN_EVENT_KEY = "auth_password_login_event"
-_COOKIE_CHECK_WARMED_UP_KEY = "_cookie_check_warmed_up"
 LOGIN_LOGO_VIDEO_PATH = Path(__file__).resolve().parents[1] / "assets" / "vo_logo_gif_2.mp4"
 
 
@@ -65,63 +56,11 @@ def login_with_password(password: str) -> str | None:
 
 
 def logout() -> None:
-    player_name = st.session_state.get("innlogget_spiller")
-    if player_name:
-        delete_auth_tokens_for_player(str(player_name))
-    try:
-        _get_cookie_manager().delete(REMEMBER_ME_COOKIE_NAME)
-    except KeyError:
-        pass  # no remember-me cookie was set for this browser
     st.session_state.pop(AUTH_SESSION_KEY, None)
     st.session_state.pop("innlogget_spiller", None)
     st.session_state.pop("welcome_toast_player", None)
     st.session_state.pop("choosen_mainpage", None)
     st.session_state.pop("choosen_subpage", None)
-
-
-def _get_cookie_manager():
-    # imported lazily so plain unit tests don't need the component installed/running in a script context
-    import extra_streamlit_components as stx
-
-    # constructed once per session (not per rerun): the component key must stay unique within a single run
-    if "_remember_me_cookie_manager" not in st.session_state:
-        st.session_state["_remember_me_cookie_manager"] = stx.CookieManager(key="golf_cookie_manager")
-    return st.session_state["_remember_me_cookie_manager"]
-
-
-def _get_fresh_cookie_manager():
-    """Return the cached cookie manager after refreshing its cookies from the browser for this rerun."""
-    cookie_manager = _get_cookie_manager()
-    cookie_manager.get_all()
-    return cookie_manager
-
-
-def _hash_token(raw_token: str) -> str:
-    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-
-
-def create_remember_token(player_name: str, cookie_manager=None) -> str:
-    """Create a 'remember me' token, persist its hash, and store the raw token in a browser cookie."""
-    raw_token = secrets.token_urlsafe(32)
-    expires_at_dt = datetime.now(UTC) + timedelta(days=REMEMBER_ME_DAYS)
-    store_auth_token(_hash_token(raw_token), player_name, expires_at_dt.isoformat(timespec="seconds"))
-    (cookie_manager or _get_cookie_manager()).set(REMEMBER_ME_COOKIE_NAME, raw_token, expires_at=expires_at_dt)
-    return raw_token
-
-
-def try_restore_session_from_cookie(cookie_manager=None) -> str | None:
-    """Silently log a player back in from a valid 'remember me' cookie, without rendering the login form."""
-    raw_token = (cookie_manager or _get_fresh_cookie_manager()).get(REMEMBER_ME_COOKIE_NAME)
-    if not raw_token:
-        return None
-
-    player_name = get_player_for_token(_hash_token(str(raw_token)))
-    if player_name is None:
-        return None
-
-    st.session_state[AUTH_SESSION_KEY] = True
-    st.session_state["innlogget_spiller"] = player_name
-    return player_name
 
 
 @st.cache_data
@@ -157,17 +96,6 @@ def require_login_page(stop: bool = True) -> str | None:
     if logged_in_player is not None:
         return logged_in_player
 
-    cookie_manager = _get_fresh_cookie_manager()
-    restored_player = try_restore_session_from_cookie(cookie_manager)
-    if restored_player is not None:
-        return restored_player
-
-    # the cookie component's real value only arrives after one round trip to the browser; wait for
-    # that silently before showing the login screen so a valid "remember me" cookie doesn't flash it
-    if not st.session_state.get(_COOKIE_CHECK_WARMED_UP_KEY):
-        st.session_state[_COOKIE_CHECK_WARMED_UP_KEY] = True
-        st.rerun()
-
     _render_login_logo()
 
     login_column = st.columns([1, 2, 1])[1]
@@ -179,11 +107,11 @@ def require_login_page(stop: bool = True) -> str | None:
                 placeholder="Passord",
                 label_visibility="collapsed",
             )
-            remember_me = st.checkbox("Husk meg på denne enheten", value=True)
             submitted = st.form_submit_button(
                 "Fortsett",
                 type="primary",
                 width="stretch",
+                disabled=not st.session_state.get("sqlite_bootstrap_checked", False),
             )
 
     if submitted:
@@ -195,9 +123,6 @@ def require_login_page(stop: bool = True) -> str | None:
             if player_name is None:
                 st.error("Feil passord. Prøv igjen.")
             else:
-                if remember_me:
-                    create_remember_token(player_name, cookie_manager)
-                st.session_state[PASSWORD_LOGIN_EVENT_KEY] = True
                 st.success(f"Innlogget som {player_name}")
                 st.rerun()
 

@@ -289,49 +289,6 @@ def save_live_score(live_rundeid: str, current_player: str, player_name: str, hu
         pass
 
 
-def save_live_hole_scores(live_rundeid: str, current_player: str, hull: int, scores: dict[str, int]) -> None:
-    """Save all scores for the active group on one hole in a single SQLite write."""
-    if not isinstance(scores, dict):
-        raise LiveRoundError("Slagene må sendes som én verdi per spiller.")
-    access = get_live_round_access(live_rundeid, current_player)
-    player_names = access["spillere"]
-    if set(scores) != set(player_names):
-        raise LiveRoundError("Alle spillere i gruppen må ha ett slag før hullet lagres.")
-
-    session = access["session"]
-    round_setup = _get_round_setup(session)
-    score_df = _get_round_score_df(round_setup)
-    hole_mask = pd.to_numeric(score_df["hull"], errors="coerce").eq(hull)
-    if not hole_mask.any():
-        raise LiveRoundError(f"Hull {hull} finnes ikke i denne runden.")
-    par = _get_par_by_hull(session).get(int(hull))
-    if par is None:
-        raise LiveRoundError(f"Fant ikke par for hull {hull}.")
-
-    normalized_scores = {}
-    for player_name in player_names:
-        score = scores[player_name]
-        if not isinstance(score, int) or isinstance(score, bool):
-            raise LiveRoundError("Slag må være et heltall.")
-        if score < 1 or score > par + 6:
-            raise LiveRoundError(f"Slag må være mellom 1 og {par + 6} på dette hullet.")
-        normalized_scores[player_name] = score
-
-    for player_name, score in normalized_scores.items():
-        score_df.loc[hole_mask, player_name] = score
-    group_status = round_setup.setdefault("gruppe_klar", {"1": [], "2": []})
-    group_key = str(access["gruppe"])
-    group_status[group_key] = [value for value in group_status.get(group_key, []) if int(value) != int(hull)]
-    if not my_dfs.save_table_df(str(round_setup["score_table"]), score_df):
-        raise LiveRoundError("Klarte ikke å lagre slagene.")
-
-    live_rounds_df = _get_live_rounds_df()
-    row_mask = live_rounds_df["live_rundeid"].astype(str) == str(live_rundeid)
-    live_rounds_df.loc[row_mask, "rundeoppsett"] = json.dumps(session["rundeoppsett"])
-    _save_live_rounds_df(live_rounds_df)
-    set_cached_df(str(round_setup["score_table"]), score_df)
-
-
 def confirm_live_hole(live_rundeid: str, current_player: str, hull: int) -> bool:
     access = get_live_round_access(live_rundeid, current_player)
     session = access["session"]
