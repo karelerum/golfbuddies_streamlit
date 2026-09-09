@@ -366,7 +366,13 @@ def delete_tournament(turneringsid: str) -> SyncReport:
     return sync_report
 
 
-def create_round_in_tournament(turneringsid: str, bane: str, spillere: list[str]) -> str:
+def create_round_in_tournament(
+    turneringsid: str,
+    bane: str,
+    spillere: list[str],
+    *,
+    sync_to_gsheet: bool = True,
+) -> str:
     """Append a single new round to an existing tournament (used by 6P live rounds) and return its rundeid."""
     now = _timestamp()
     round_info_df = my_dfs.get_round_info_df()
@@ -393,13 +399,14 @@ def create_round_in_tournament(turneringsid: str, bane: str, spillere: list[str]
 
     my_dfs.save_round_info_df(updated_round_info_df)
     my_dfs.save_round_df(rundeid, round_df)
-    sync_df_to_gsheet(updated_round_info_df, "master", "rundeinfo")
-    sync_df_to_gsheet(round_df, "rounds", rundeid)
+    if sync_to_gsheet:
+        sync_df_to_gsheet(updated_round_info_df, "master", "rundeinfo")
+        sync_df_to_gsheet(round_df, "rounds", rundeid)
 
     return rundeid
 
 
-def delete_round_from_tournament(rundeid: str) -> None:
+def delete_round_from_tournament(rundeid: str, *, sync_to_gsheet: bool = True) -> None:
     """Remove a single, not-yet-finished round from rundeinfo (used to clean up unfinished 6P live rounds)."""
     round_info_df = my_dfs.get_round_info_df()
     if round_info_df is None or round_info_df.empty:
@@ -414,5 +421,6 @@ def delete_round_from_tournament(rundeid: str) -> None:
     updated_round_info_df = round_info_df.loc[~row_mask].reset_index(drop=True)
     my_dfs.save_round_info_df(updated_round_info_df)
     drop_sqlite_table(str(rundeid))
-    delete_worksheet_if_exists(SHEETS_ROUNDS_URL, str(rundeid))
-    sync_df_to_gsheet(updated_round_info_df, "master", "rundeinfo")
+    if sync_to_gsheet:
+        delete_worksheet_if_exists(SHEETS_ROUNDS_URL, str(rundeid))
+        sync_df_to_gsheet(updated_round_info_df, "master", "rundeinfo")

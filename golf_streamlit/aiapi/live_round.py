@@ -4,13 +4,12 @@ import logging
 
 import pandas as pd
 
-from aiapi.df_general_cached import get_cached_df, set_cached_df
+from aiapi.df_general_cached import clear_cached_df, get_cached_df, set_cached_df
 from aiapi.calc_live_to_round import calculate_live_round_df
 from aiapi.calc_result_columns import recalculate_6points, recalculate_placement
-from aiapi.gsheet_sync import sync_df_to_gsheet, write_live_round_df_to_gsheet
 from aiapi.round_result import get_tournament_p6_totals
 from aiapi.round_save import RoundSaveError, save_round_and_sync
-from aiapi.sqlite import get_sqlite_df, table_exists
+from aiapi.sqlite import db, get_sqlite_df, table_exists, update_sqlite_row
 from aiapi.tournament_setup import create_round_in_tournament, delete_round_from_tournament
 from config.constants import LIVE_ROUND_TYPE_6P, LIVE_ROUND_TYPE_SLAG, LIVE_ROUND_TYPES
 from src import my_dfs
@@ -66,7 +65,7 @@ def _save_live_rounds_df(live_rounds_df: pd.DataFrame) -> None:
 
 
 def _set_slag_runde_ind(rundeid: str, value: int) -> None:
-    """Flag/unflag the source round as tied to an active live round and sync rundeinfo to Google Sheets."""
+    """Flag/unflag the source round as tied to an active live round in local SQLite."""
     round_info_df = my_dfs.get_round_info_df()
     if round_info_df is None or round_info_df.empty or "rundeid" not in round_info_df.columns:
         raise LiveRoundError("Fant ingen data i rundeinfo.")
@@ -82,25 +81,6 @@ def _set_slag_runde_ind(rundeid: str, value: int) -> None:
     updated_round_info_df.loc[row_mask, "slag_runde_ind"] = value
     if not my_dfs.save_round_info_df(updated_round_info_df):
         raise LiveRoundError(f"Klarte ikke å oppdatere slag_runde_ind for rundeid {rundeid}.")
-
-    report = sync_df_to_gsheet(updated_round_info_df, "master", "rundeinfo")
-    if not report.ok:
-        logger.warning("Klarte ikke å synkronisere rundeinfo til Google Sheets: %s", report.status_message())
-
-
-def _live_backup_sheet_name(session: dict, round_setup: dict) -> str:
-    source_rundeid = str(session.get("source_rundeid") or "ukjent_runde")
-    return f"{source_rundeid}_live_{int(round_setup['runde'])}"
-
-
-def _backup_live_table(table_name: str, df: pd.DataFrame, worksheet_name: str | None = None) -> None:
-    """Mirror one local live table without making the live round depend on Sheets availability."""
-    try:
-        report = write_live_round_df_to_gsheet(df, worksheet_name or table_name)
-        if not report.ok:
-            logger.warning("Live-round backup failed for '%s': %s", table_name, report.status_message())
-    except Exception as exc:
-        logger.warning("Live-round backup failed for '%s': %s", table_name, exc)
 
 
 def _build_player_setup(
@@ -256,67 +236,128 @@ def _published_hulls(round_setup: dict) -> set[int]:
     return set(group_status.get("1", [])).intersection(group_status.get("2", []))
 
 
-def save_live_score(live_rundeid: str, current_player: str, player_name: str, hull: int, score: int) -> None:
+def _fresh_session_in_transaction(conn, live_rundeid: str, fallback_session: dict) -> tuple[dict, pd.DataFrame]:
+    live_rounds_df = get_sqlite_df(LIVE_ROUNDS_TABLE, strict=True, connection=conn)
+    row_mask = live_rounds_df["live_rundeid"].astype(str) == str(live_rundeid)
+    if not row_mask.any():
+        raise LiveRoundError("Fant ikke den aktive live-runden.")
+    session = {**fallback_session, **live_rounds_df.loc[row_mask].iloc[0].to_dict()}
+    try:
+        session["spillere"] = json.loads(str(session.get("spillere") or "[]"))
+        session["rundeoppsett"] = json.loads(str(session.get("rundeoppsett") or "[]"))
+    except json.JSONDecodeError as exc:
+        raise LiveRoundError("Live-runden har ugyldig spilleroppsett.") from exc
+    return session, live_rounds_df
+
+
+def _clear_live_session_cache(score_table: str) -> None:
+    clear_cached_df(LIVE_ROUNDS_TABLE)
+    clear_cached_df(score_table)
+
+
+def _save_live_scores(
+    live_rundeid: str,
+    current_player: str,
+    hull: int,
+    scores: dict[str, int],
+    *,
+    require_complete_group: bool,
+) -> None:
     access = get_live_round_access(live_rundeid, current_player)
-    if player_name not in access["spillere"]:
+    player_names = access["spillere"]
+    if not scores or not set(scores).issubset(player_names):
         raise LiveRoundError("Du kan bare registrere spillere i din egen gruppe.")
-    if not isinstance(score, int):
-        raise LiveRoundError("Slag må være et heltall.")
-    session = access["session"]
-    round_setup = _get_round_setup(session)
-    score_df = _get_round_score_df(round_setup)
-    if hull not in set(pd.to_numeric(score_df["hull"], errors="coerce").dropna().astype(int)):
-        raise LiveRoundError(f"Hull {hull} finnes ikke i denne runden.")
-    par = _get_par_by_hull(session).get(int(hull))
+    if require_complete_group and set(scores) != set(player_names):
+        raise LiveRoundError("Alle spillere i gruppen må ha ett slag før hullet lagres.")
+
+    par = _get_par_by_hull(access["session"]).get(int(hull))
     if par is None:
         raise LiveRoundError(f"Fant ikke par for hull {hull}.")
-    if score < 1 or score > par + 6:
-        raise LiveRoundError(f"Slag må være mellom 1 og {par + 6} på dette hullet.")
+    normalized_scores = {}
+    for player_name, score in scores.items():
+        if not isinstance(score, int) or isinstance(score, bool):
+            raise LiveRoundError("Slag må være et heltall.")
+        if score < 1 or score > par + 6:
+            raise LiveRoundError(f"Slag må være mellom 1 og {par + 6} på dette hullet.")
+        normalized_scores[player_name] = score
 
-    score_df.loc[pd.to_numeric(score_df["hull"], errors="coerce").eq(hull), player_name] = score
-    group_status = round_setup.setdefault("gruppe_klar", {"1": [], "2": []})
-    group_key = str(access["gruppe"])
-    group_status[group_key] = [value for value in group_status.get(group_key, []) if int(value) != int(hull)]
-    if not my_dfs.save_table_df(str(round_setup["score_table"]), score_df):
-        raise LiveRoundError("Klarte ikke å lagre slaget.")
-    live_rounds_df = _get_live_rounds_df()
-    row_mask = live_rounds_df["live_rundeid"].astype(str) == str(live_rundeid)
-    live_rounds_df.loc[row_mask, "rundeoppsett"] = json.dumps(session["rundeoppsett"])
-    _save_live_rounds_df(live_rounds_df)
-    try:
-        set_cached_df(str(round_setup["score_table"]), score_df)
-    except Exception:
-        pass
+    with db.transaction(immediate=True) as conn:
+        session, _ = _fresh_session_in_transaction(conn, live_rundeid, access["session"])
+        round_setup = _get_round_setup(session)
+        score_table = str(round_setup["score_table"])
+        score_df = get_sqlite_df(score_table, strict=True, connection=conn)
+        if hull not in set(pd.to_numeric(score_df["hull"], errors="coerce").dropna().astype(int)):
+            raise LiveRoundError(f"Hull {hull} finnes ikke i denne runden.")
+        missing_columns = set(normalized_scores).difference(score_df.columns)
+        if missing_columns:
+            raise LiveRoundError("Scorekortet mangler en eller flere spillere.")
+
+        update_sqlite_row(conn, score_table, "hull", hull, normalized_scores)
+        group_status = round_setup.setdefault("gruppe_klar", {"1": [], "2": []})
+        group_key = str(access["gruppe"])
+        group_status[group_key] = [value for value in group_status.get(group_key, []) if int(value) != int(hull)]
+        update_sqlite_row(
+            conn,
+            LIVE_ROUNDS_TABLE,
+            "live_rundeid",
+            str(live_rundeid),
+            {"rundeoppsett": json.dumps(session["rundeoppsett"])},
+        )
+
+    _clear_live_session_cache(score_table)
+
+
+def save_live_score(live_rundeid: str, current_player: str, player_name: str, hull: int, score: int) -> None:
+    _save_live_scores(
+        live_rundeid,
+        current_player,
+        hull,
+        {player_name: score},
+        require_complete_group=False,
+    )
+
+
+def save_live_hole_scores(live_rundeid: str, current_player: str, hull: int, scores: dict[str, int]) -> None:
+    """Save all scores for the active group on one hole in a single SQLite write."""
+    if not isinstance(scores, dict):
+        raise LiveRoundError("Slagene må sendes som én verdi per spiller.")
+    _save_live_scores(
+        live_rundeid,
+        current_player,
+        hull,
+        scores,
+        require_complete_group=True,
+    )
 
 
 def confirm_live_hole(live_rundeid: str, current_player: str, hull: int) -> bool:
     access = get_live_round_access(live_rundeid, current_player)
-    session = access["session"]
-    round_setup = _get_round_setup(session)
-    score_df = _get_round_score_df(round_setup)
-    hole_df = score_df.loc[pd.to_numeric(score_df["hull"], errors="coerce").eq(hull), access["spillere"]]
-    if hole_df.empty or hole_df.isna().any(axis=None):
-        raise LiveRoundError("Alle spillere i gruppen må ha slag før dere går videre.")
-    group_status = round_setup.setdefault("gruppe_klar", {"1": [], "2": []})
-    group_key = str(access["gruppe"])
-    group_status[group_key] = sorted(set(group_status.get(group_key, []) + [int(hull)]))
+    with db.transaction(immediate=True) as conn:
+        session, _ = _fresh_session_in_transaction(conn, live_rundeid, access["session"])
+        round_setup = _get_round_setup(session)
+        score_table = str(round_setup["score_table"])
+        score_df = get_sqlite_df(score_table, strict=True, connection=conn)
+        hole_df = score_df.loc[pd.to_numeric(score_df["hull"], errors="coerce").eq(hull), access["spillere"]]
+        if hole_df.empty or hole_df.isna().any(axis=None):
+            raise LiveRoundError("Alle spillere i gruppen må ha slag før dere går videre.")
 
-    is_published = int(hull) in _published_hulls(round_setup)
-    all_holes = set(pd.to_numeric(score_df["hull"], errors="coerce").dropna().astype(int))
-    if is_published and all_holes and int(hull) == max(all_holes):
-        round_setup["fullfort"] = True
+        group_status = round_setup.setdefault("gruppe_klar", {"1": [], "2": []})
+        group_key = str(access["gruppe"])
+        group_status[group_key] = sorted(set(group_status.get(group_key, []) + [int(hull)]))
+        is_published = int(hull) in _published_hulls(round_setup)
+        all_holes = set(pd.to_numeric(score_df["hull"], errors="coerce").dropna().astype(int))
+        if is_published and all_holes and int(hull) == max(all_holes):
+            round_setup["fullfort"] = True
 
-    live_rounds_df = _get_live_rounds_df()
-    row_mask = live_rounds_df["live_rundeid"].astype(str) == str(live_rundeid)
-    live_rounds_df.loc[row_mask, "rundeoppsett"] = json.dumps(session["rundeoppsett"])
-    _save_live_rounds_df(live_rounds_df)
-    if is_published and all_holes and int(hull) == max(all_holes):
-        _backup_live_table(str(round_setup["score_table"]), score_df, _live_backup_sheet_name(session, round_setup))
-        _backup_live_table(LIVE_ROUNDS_TABLE, live_rounds_df)
-        if session.get("type_runde") == LIVE_ROUND_TYPE_6P:
-            _save_single_live_round(session, round_setup)
-        elif session.get("source_rundeid") and int(round_setup["runde"]) == int(session.get("antall_runder", 1)):
-            _save_completed_live_round(session)
+        update_sqlite_row(
+            conn,
+            LIVE_ROUNDS_TABLE,
+            "live_rundeid",
+            str(live_rundeid),
+            {"rundeoppsett": json.dumps(session["rundeoppsett"])},
+        )
+
+    _clear_live_session_cache(score_table)
     return is_published
 
 
@@ -421,6 +462,14 @@ def get_live_round_state(live_rundeid: str, current_player: str) -> dict:
     }
 
 
+def refresh_live_round_cache(live_rundeid: str) -> None:
+    """Force the next live-round render to read metadata and scores from local SQLite."""
+    clear_cached_df(LIVE_ROUNDS_TABLE)
+    session = get_live_round_details(live_rundeid)
+    round_setup = _get_round_setup(session)
+    clear_cached_df(str(round_setup["score_table"]))
+
+
 def _final_standings(session: dict, round_setup: dict) -> dict[str, int]:
     """Compute each player's spillers_par (startverdi + slag - par) for a finished round, regardless of publish-status."""
     score_df = _get_round_score_df(round_setup)
@@ -447,7 +496,7 @@ def _build_completed_live_round_df(session: dict) -> pd.DataFrame:
     except ValueError as exc:
         raise LiveRoundError(f"Klarte ikke å beregne ferdig live-runde: {exc}") from exc
 
-def _save_completed_live_round(session: dict) -> None:
+def _save_completed_live_round(session: dict):
     """Commit a finished live session as the selected ordinary round."""
     source_rundeid = str(session["source_rundeid"])
     completed_df = _build_completed_live_round_df(session)
@@ -458,12 +507,12 @@ def _save_completed_live_round(session: dict) -> None:
             prepared_df[player_name] = pd.NA
 
     try:
-        save_round_and_sync(source_rundeid, prepared_df, completed_df, is_round_completed=True)
+        return save_round_and_sync(source_rundeid, prepared_df, completed_df, is_round_completed=True)
     except RoundSaveError as exc:
         raise LiveRoundError(f"Live-runden er ferdig, men kunne ikke legges til som vanlig runde: {exc}") from exc
 
 
-def _save_single_live_round(session: dict, round_setup: dict) -> None:
+def _save_single_live_round(session: dict, round_setup: dict):
     """Commit one live round's own scorecard directly as its own ordinary round, without averaging (used for 6P)."""
     rundeid = str(round_setup.get("rundeid") or session["source_rundeid"])
     score_df = _get_round_score_df(round_setup)
@@ -476,7 +525,7 @@ def _save_single_live_round(session: dict, round_setup: dict) -> None:
             prepared_df[player_name] = pd.NA
 
     try:
-        save_round_and_sync(rundeid, prepared_df, score_df, is_round_completed=True)
+        return save_round_and_sync(rundeid, prepared_df, score_df, is_round_completed=True)
     except RoundSaveError as exc:
         raise LiveRoundError(f"Runden er ferdig, men kunne ikke lagres som vanlig runde: {exc}") from exc
 
@@ -548,7 +597,7 @@ def _advance_to_next_6p_round(live_rundeid: str, session: dict, round_setup: dic
     player_names = [str(player["spiller"]) for player in session.get("spillere", [])]
 
     next_round_number = round_number + 1
-    next_rundeid = create_round_in_tournament(turneringsid, bane, player_names)
+    next_rundeid = create_round_in_tournament(turneringsid, bane, player_names, sync_to_gsheet=False)
     next_score_table = _live_score_table_name(next_rundeid, next_round_number)
     next_round_df = my_dfs.get_round_df(next_rundeid)
     next_score_df = next_round_df[["hull"]].copy()
@@ -631,14 +680,19 @@ def create_live_round(
     if source_rundeid is None:
         if type_runde != LIVE_ROUND_TYPE_6P or not new_round_turneringsid or not new_round_bane:
             raise LiveRoundError("Velg en runde, eller oppgi turnering og bane for å opprette en ny.")
-        source_rundeid = create_round_in_tournament(str(new_round_turneringsid), str(new_round_bane), group_1 + group_2)
+        source_rundeid = create_round_in_tournament(
+            str(new_round_turneringsid),
+            str(new_round_bane),
+            group_1 + group_2,
+            sync_to_gsheet=False,
+        )
         newly_created_round = True
     source_rundeid = str(source_rundeid)
 
     candidates_df = get_live_round_candidates()
     if source_rundeid not in set(candidates_df["rundeid"]):
         if newly_created_round:
-            delete_round_from_tournament(source_rundeid)
+            delete_round_from_tournament(source_rundeid, sync_to_gsheet=False)
         raise LiveRoundError(f"Runde {source_rundeid} er ikke tilgjengelig for Live Runde.")
 
     start_poeng = None
@@ -721,7 +775,7 @@ def delete_live_round(live_rundeid: str) -> None:
         for round_setup in rundeoppsett:
             rundeid = str(round_setup.get("rundeid") or "")
             if rundeid and round_setup.get("nyopprettet"):
-                delete_round_from_tournament(rundeid)
+                delete_round_from_tournament(rundeid, sync_to_gsheet=False)
         _save_live_rounds_df(live_rounds_df.loc[~row_mask].reset_index(drop=True))
         return
 
@@ -785,3 +839,64 @@ def update_live_round_setup(
     live_rounds_df.loc[row_mask, "spillere"] = json.dumps(new_player_setup)
     live_rounds_df.loc[row_mask, "rundeoppsett"] = json.dumps(session["rundeoppsett"])
     _save_live_rounds_df(live_rounds_df)
+
+
+def _set_finalization_status(live_rundeid: str, fallback_session: dict, status: str) -> dict:
+    with db.transaction(immediate=True) as conn:
+        session, _ = _fresh_session_in_transaction(conn, live_rundeid, fallback_session)
+        final_setup = session["rundeoppsett"][-1]
+        final_setup["finalization_status"] = status
+        update_sqlite_row(
+            conn,
+            LIVE_ROUNDS_TABLE,
+            "live_rundeid",
+            str(live_rundeid),
+            {"rundeoppsett": json.dumps(session["rundeoppsett"])},
+        )
+    clear_cached_df(LIVE_ROUNDS_TABLE)
+    return session
+
+
+def finalize_live_round_session(live_rundeid: str, current_player: str) -> None:
+    """Persist and sync a fully completed live session exactly at the end-page boundary."""
+    access = get_live_round_access(live_rundeid, current_player)
+    with db.transaction(immediate=True) as conn:
+        session, _ = _fresh_session_in_transaction(conn, live_rundeid, access["session"])
+        round_setups = session.get("rundeoppsett", [])
+        if not round_setups or not all(bool(round_setup.get("fullfort")) for round_setup in round_setups):
+            raise LiveRoundError("Begge grupper må fullføre hele live-runden før sluttsynk.")
+
+        final_setup = round_setups[-1]
+        current_status = str(final_setup.get("finalization_status") or "")
+        if current_status == "completed":
+            return
+        if current_status == "pending":
+            raise LiveRoundError("Sluttsynk pågår allerede. Prøv igjen om litt.")
+        final_setup["finalization_status"] = "pending"
+        update_sqlite_row(
+            conn,
+            LIVE_ROUNDS_TABLE,
+            "live_rundeid",
+            str(live_rundeid),
+            {"rundeoppsett": json.dumps(round_setups)},
+        )
+
+    clear_cached_df(LIVE_ROUNDS_TABLE)
+    for round_setup in round_setups:
+        clear_cached_df(str(round_setup["score_table"]))
+
+    try:
+        if session.get("type_runde") == LIVE_ROUND_TYPE_6P:
+            results = [_save_single_live_round(session, round_setup) for round_setup in round_setups]
+        else:
+            _set_slag_runde_ind(str(session["source_rundeid"]), 0)
+            results = [_save_completed_live_round(session)]
+        if any(not result.sync_report.ok for result in results):
+            raise LiveRoundError("Sluttsynk til Google Sheets ble ikke fullført.")
+    except Exception as exc:
+        _set_finalization_status(live_rundeid, session, "failed")
+        if isinstance(exc, LiveRoundError):
+            raise
+        raise LiveRoundError(f"Sluttsynk feilet: {exc}") from exc
+
+    _set_finalization_status(live_rundeid, session, "completed")

@@ -108,6 +108,39 @@ def filter_player_round_history(round_history_df: pd.DataFrame, tournament_filte
     return round_history_df.loc[round_history_df["type"] == tournament_type].reset_index(drop=True)
 
 
+def filter_player_badges_by_tournament_type(
+    badges_df: pd.DataFrame,
+    tournament_df: pd.DataFrame | None,
+    tournament_filter_label: str,
+) -> pd.DataFrame:
+    """Filter round and tournament badges by season while retaining total badges."""
+    tournament_type = PLAYER_TOURNAMENT_FILTERS.get(tournament_filter_label)
+    if tournament_type is None or badges_df.empty:
+        return badges_df.copy()
+
+    scope_values = badges_df.get("vinner_innen", pd.Series("", index=badges_df.index)).fillna("").astype(str).str.strip().str.lower()
+    is_total_badge = scope_values.isin(["total", "totalt"])
+    if tournament_df is None or tournament_df.empty or not {"turneringsid", "type"}.issubset(tournament_df.columns):
+        return badges_df.loc[is_total_badge].reset_index(drop=True)
+
+    tournament_types_df = tournament_df[["turneringsid", "type"]].copy()
+    tournament_types_df["badge_tournament_id"] = tournament_types_df["turneringsid"].astype(str).str.replace(r"\.0$", "", regex=True)
+    tournament_types_df["type"] = tournament_types_df["type"].fillna("").astype(str).str.strip().str.lower()
+    tournament_types_df = tournament_types_df.drop_duplicates(subset=["badge_tournament_id"])
+
+    prepared_badges_df = badges_df.copy()
+    prepared_badges_df["badge_tournament_id"] = prepared_badges_df["turneringsid"].astype(str).str.replace(r"\.0$", "", regex=True)
+    prepared_badges_df = prepared_badges_df.merge(
+        tournament_types_df[["badge_tournament_id", "type"]],
+        on="badge_tournament_id",
+        how="left",
+    )
+    selected_type = tournament_type.lower()
+    return prepared_badges_df.loc[
+        is_total_badge.to_numpy() | prepared_badges_df["type"].eq(selected_type)
+    ].drop(columns=["badge_tournament_id", "type"]).reset_index(drop=True)
+
+
 def _format_round_label(row: pd.Series) -> str:
     round_id = str(row.get("rundeid") or "")
     year_value = row.get("aar")

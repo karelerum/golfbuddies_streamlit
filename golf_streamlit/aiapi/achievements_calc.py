@@ -9,6 +9,10 @@ def build_default_badge_catalog() -> pd.DataFrame:
         {"kategori": "type_par", "verdi": -2, "vinner_innen": "totalt", "visningsnavn": "Eagle", "filnavn": "eagle.png", "b": 3},
         {"kategori": "antall_par", "verdi": 5, "vinner_innen": "runde", "visningsnavn": "5 Par", "filnavn": "5_par.png", "b": 20},
         {"kategori": "antall_par", "verdi": 10, "vinner_innen": "runde", "visningsnavn": "10 Par", "filnavn": "10_par.png", "b": 10},
+        {"kategori": "slag_total", "verdi": 75, "vinner_innen": "runde", "visningsnavn": "Break 75", "filnavn": "break_75.png", "b": 75},
+        {"kategori": "slag_total", "verdi": 80, "vinner_innen": "runde", "visningsnavn": "Break 80", "filnavn": "break_80.png", "b": 80},
+        {"kategori": "slag_total", "verdi": 90, "vinner_innen": "runde", "visningsnavn": "Break 90", "filnavn": "break_90.png", "b": 90},
+        {"kategori": "slag_total", "verdi": 100, "vinner_innen": "runde", "visningsnavn": "Break 100", "filnavn": "break_100.png", "b": 100},
         {"kategori": "unik", "verdi": None, "vinner_innen": "runde", "visningsnavn": "Skogsmannen", "filnavn": "skogsmannen.png", "b": 99},
         {"kategori": "antall_birdie", "verdi": 1, "vinner_innen": "runde", "visningsnavn": "Birdie", "filnavn": "1_birdie.png", "b": 30},
         {"kategori": "antall_birdie", "verdi": 3, "vinner_innen": "runde", "visningsnavn": "3 Birdies", "filnavn": "3_birdie.png", "b": 15},
@@ -89,6 +93,26 @@ def calculate_achievements(
                     continue
                 rule = matching.iloc[0]
                 awarded_rows.extend(add_rows([str(grouped_row["spiller"])], str(rule["merkeid"]), scope))
+
+    # slag_total: award the most difficult threshold the player qualifies for (e.g. Break 90 over Break 100).
+    break_rules = rules_df.loc[rules_df["kategori"] == "slag_total"].copy()
+    for scope, cfg in scope_config.items():
+        scoped_rules = break_rules.loc[break_rules["vinner_innen_totalt"] == scope].copy()
+        if scoped_rules.empty:
+            continue
+        scoped_rules = scoped_rules.sort_values("verdi", ascending=True)
+
+        totals_df = merged_df.groupby(cfg["group_cols"], as_index=False)["slag"].sum()
+        if totals_df.empty:
+            continue
+
+        for _, grouped_row in totals_df.iterrows():
+            total_slag = float(grouped_row["slag"])
+            matching = scoped_rules.loc[scoped_rules["verdi"] >= total_slag].head(1)
+            if matching.empty:
+                continue
+            rule = matching.iloc[0]
+            awarded_rows.extend(add_rows([str(grouped_row["spiller"])], str(rule["merkeid"]), scope))
 
     # type_par: count of spiller_par == -2.
     type_rules = rules_df.loc[rules_df["kategori"] == "type_par"].copy()
