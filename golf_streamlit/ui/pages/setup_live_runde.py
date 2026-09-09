@@ -155,29 +155,35 @@ def page():
         st.dataframe(preview_df, hide_index=True, width="stretch")
     elif type_runde == LIVE_ROUND_TYPE_SLAG and selected_players:
         st.markdown("#### Startverdier")
-        startverdier_df = pd.DataFrame(
-            {
-                "Spiller": selected_players,
-                "Startverdi": [st.session_state.get(f"live_startverdi_{player_name}", 0) for player_name in selected_players],
+        st.markdown(
+            """
+            <style>
+            .st-key-live-startverdier [data-testid="stHorizontalBlock"] {
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
             }
+            .st-key-live-startverdier [data-testid="stColumn"] {
+                min-width: 0 !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
         )
-        edited_startverdier_df = st.data_editor(
-            startverdier_df,
-            hide_index=True,
-            width="stretch",
-            disabled=["Spiller"],
-            column_config={
-                "Spiller": st.column_config.TextColumn("Spiller"),
-                "Startverdi": st.column_config.NumberColumn("Startverdi", step=1, format="%d"),
-            },
-            key="live_startverdier_grid",
-        )
-        startverdier = {
-            str(row["Spiller"]): int(row["Startverdi"])
-            for _, row in edited_startverdier_df.iterrows()
-        }
-        for player_name, startverdi in startverdier.items():
-            st.session_state[f"live_startverdi_{player_name}"] = startverdi
+        with st.container(key="live-startverdier"):
+            for player_name in selected_players:
+                player_column, value_column = st.columns([3, 2], vertical_alignment="center")
+                with player_column:
+                    st.markdown(f"**{player_name}**")
+                with value_column:
+                    startverdier[player_name] = st.number_input(
+                        "Startverdi",
+                        min_value=-99,
+                        max_value=99,
+                        value=int(st.session_state.get(f"live_startverdi_{player_name}", 0)),
+                        step=1,
+                        key=f"live_startverdi_{player_name}",
+                        label_visibility="collapsed",
+                    )
 
     button_label = "Lagre endringer" if editing_session else "Opprett live-runde"
     can_create = editing_session is not None or source_rundeid is not None or (new_round_turneringsid and new_round_bane)

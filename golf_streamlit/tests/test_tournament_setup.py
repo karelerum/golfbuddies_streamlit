@@ -7,6 +7,35 @@ from aiapi import tournament_setup
 
 
 class TournamentSetupTests(unittest.TestCase):
+    @patch("aiapi.tournament_setup.sync_df_to_gsheet")
+    @patch("aiapi.tournament_setup.my_dfs.save_round_df", return_value=True)
+    @patch("aiapi.tournament_setup.my_dfs.save_round_info_df", return_value=True)
+    @patch("aiapi.tournament_setup._build_round_df", return_value=pd.DataFrame({"hull": [1], "Tore": [pd.NA]}))
+    @patch(
+        "aiapi.tournament_setup.my_dfs.get_round_info_df",
+        return_value=pd.DataFrame(
+            {
+                "rundeid": ["20260101"],
+                "turneringsid": ["202601"],
+                "runde": [1],
+                "bane": ["Fana"],
+            }
+        ),
+    )
+    def test_create_round_local_mode_does_not_sync_sheets(
+        self,
+        _get_round_info_df,
+        _build_round_df,
+        _save_round_info_df,
+        _save_round_df,
+        sync_df_to_gsheet,
+    ):
+        from aiapi.tournament_setup import create_round_in_tournament
+
+        create_round_in_tournament("202601", "Fana", ["Tore"], sync_to_gsheet=False)
+
+        sync_df_to_gsheet.assert_not_called()
+
     @patch(
         "aiapi.tournament_setup.my_dfs.get_tournament_info_df",
         return_value=pd.DataFrame({"turneringsid": ["202601", "202602", "202501"]}),

@@ -13,6 +13,7 @@ from aiapi.auth import (
     is_logged_in,
     login_with_password,
     logout,
+    require_login_page,
     try_restore_session_from_cookie,
 )
 
@@ -77,6 +78,16 @@ class AuthTests(unittest.TestCase):
 
         self.assertIsNone(get_logged_in_player())
         self.assertFalse(is_logged_in())
+
+    @patch("aiapi.auth._get_fresh_cookie_manager")
+    @patch("aiapi.auth.try_restore_session_from_cookie", return_value="Tore")
+    def test_valid_cookie_skips_login_callback(self, _restore_mock, _cookie_manager_mock):
+        readiness_mock = unittest.mock.Mock()
+
+        player_name = require_login_page(stop=False, before_login=readiness_mock)
+
+        self.assertEqual(player_name, "Tore")
+        readiness_mock.assert_not_called()
 
 
 class RememberMeTokenTests(unittest.TestCase):

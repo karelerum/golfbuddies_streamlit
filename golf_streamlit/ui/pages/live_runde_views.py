@@ -5,7 +5,7 @@ import html
 import pandas as pd
 import streamlit as st
 
-from aiapi.live_round import LiveRoundError, advance_to_next_live_round, confirm_live_hole, get_live_hole_points, save_live_score
+from aiapi.live_round import LiveRoundError, advance_to_next_live_round, confirm_live_hole, get_live_hole_points, refresh_live_round_cache, save_live_hole_scores, save_live_score
 from config.constants import LIVE_ROUND_TYPE_6P
 from ui.components.html_visuals import all_scores_table, live_overview_table, register_btns
 from ui.pages.live_runde_data import _build_all_scores_rows, _build_overview_rows
@@ -82,7 +82,21 @@ def render_overview_panel(
     overview_df: pd.DataFrame,
 ) -> None:
     """Oversikttabell: plassering/par/slag for alle spillere."""
-    live_overview_table(_build_overview_rows(overview_df), key=f"live_overview_{live_rundeid}_{current_player}_{hole}")
+    component_key = f"live_overview_{live_rundeid}_{current_player}"
+    result = live_overview_table(_build_overview_rows(overview_df), key=component_key)
+    if not isinstance(result, dict) or result.get("action") != "sync":
+        return
+    event_id = result.get("event_id")
+    handled_key = f"{component_key}_handled_event"
+    if event_id is None or st.session_state.get(handled_key) == event_id:
+        return
+    try:
+        refresh_live_round_cache(str(live_rundeid))
+    except LiveRoundError as exc:
+        st.error(str(exc))
+        return
+    st.session_state[handled_key] = event_id
+    st.rerun()
 
 
 def render_waiting_for_other_group_notice() -> None:
@@ -91,7 +105,11 @@ def render_waiting_for_other_group_notice() -> None:
 
 
 @st.dialog("Velg hull")
-def _show_hole_picker(hole_key: str, holes: list[int], confirmed_holes: set[int]) -> None:
+def _show_hole_picker(
+    hole_key: str,
+    holes: list[int],
+    confirmed_holes: set[int],
+) -> None:
     for selected_hole in sorted(holes):
         label = f"Hull {selected_hole} ✅" if selected_hole in confirmed_holes else f"Hull {selected_hole}"
         if st.button(
@@ -127,7 +145,11 @@ def render_hole_navigation(
             help="Velg hull",
             width="stretch",
         ):
-            _show_hole_picker(hole_key, holes, confirmed_holes)
+            _show_hole_picker(
+                hole_key,
+                holes,
+                confirmed_holes,
+            )
         if is_last_hole:
             if st.button("Fullfør runde", key=f"finish_round_{hole_key}", help="Bekreft siste hull for egen gruppe", width="stretch"):
                 try:
@@ -198,6 +220,20 @@ def render_all_scores_editor(
         st.rerun()
 
 
+def _all_scores_registered(player_names: list[str], scores: dict[str, int]) -> bool:
+    return bool(player_names) and all(scores.get(player_name) is not None for player_name in player_names)
+
+
+def _is_registration_submit_event(result: dict, hole: int, handled_event_id) -> bool:
+    event_id = result.get("event_id")
+    return (
+        result.get("user_clicked") is True
+        and event_id is not None
+        and result.get("hole") == hole
+        and handled_event_id != event_id
+    )
+
+
 def render_registration_keypad(
     live_rundeid: str,
     current_player: str,
@@ -207,6 +243,9 @@ def render_registration_keypad(
     par: int,
     component_key: str,
     synced_key: str,
+    hole_key: str,
+    holes: list[int],
+    show_all_key: str,
 ) -> None:
     """slag_pr_spiller_pr_runde_visning + regiter_knapper: begge tegnes av samme register_btns-komponent (én JS-widget)."""
     initial_scores = {}
@@ -218,18 +257,28 @@ def render_registration_keypad(
     if synced_key not in st.session_state:
         st.session_state[synced_key] = dict(initial_scores)
 
-    result = register_btns(par=par, key=component_key, spillere=player_names, scores=initial_scores)
+    result = register_btns(par=par, key=component_key, spillere=player_names, scores=initial_scores, hole=hole)
     if isinstance(result, dict):
-        synced_scores = st.session_state[synced_key]
-        for player_name, score_value in result.get("scores", {}).items():
-            if synced_scores.get(player_name) != score_value:
-                try:
-                    save_live_score(str(live_rundeid), str(current_player), player_name, hole, int(score_value))
-                except LiveRoundError as exc:
-                    st.error(str(exc))
-                else:
-                    synced_scores[player_name] = score_value
-                    st.rerun()
+        event_id = result.get("event_id")
+        handled_event_key = f"{component_key}_handled_event"
+        if not _is_registration_submit_event(result, hole, st.session_state.get(handled_event_key)):
+            return
+        submitted_scores = result.get("scores", {})
+        if not _all_scores_registered(player_names, submitted_scores):
+            return
+        try:
+            save_live_hole_scores(str(live_rundeid), str(current_player), hole, submitted_scores)
+            confirm_live_hole(str(live_rundeid), str(current_player), hole)
+        except LiveRoundError as exc:
+            st.error(str(exc))
+            return
+        if hole == holes[-1]:
+            st.session_state[show_all_key] = True
+        else:
+            st.session_state[hole_key] = holes[holes.index(hole) + 1]
+        st.session_state[handled_event_key] = event_id
+        st.session_state.pop(synced_key, None)
+        st.rerun()
 
 
 def render_registration_mode(ctx: dict) -> None:
@@ -244,7 +293,7 @@ def render_registration_mode(ctx: dict) -> None:
         ctx["show_all_key"],
         ctx["state"]["group_confirmed_hulls"],
     )
-    component_key = f"register_btns_{ctx['base_key']}_{ctx['hole']}"
+    component_key = f"register_btns_{ctx['base_key']}"
     render_registration_keypad(
         ctx["live_rundeid"],
         ctx["acting_player"],
@@ -254,6 +303,9 @@ def render_registration_mode(ctx: dict) -> None:
         ctx["par"],
         component_key,
         synced_key=f"{component_key}_synced",
+        hole_key=ctx["hole_key"],
+        holes=ctx["holes"],
+        show_all_key=ctx["show_all_key"],
     )
 
 

@@ -64,6 +64,22 @@
     z-index: 2;
     background: #e7f0e8;
   }
+  .sync-button {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #24564a;
+    font: 700 22px/1 -apple-system, Segoe UI, sans-serif;
+    cursor: pointer;
+  }
+  .sync-button:hover { background: #d7e7da; }
+  .sync-button:focus-visible {
+    outline: 2px solid #24564a;
+    outline-offset: 1px;
+  }
   .player-name {
     display: inline;
     max-width: 100px;
@@ -102,6 +118,10 @@
 
   function setFrameHeight() {
     sendMessageToStreamlit("streamlit:setFrameHeight", { height: document.documentElement.scrollHeight });
+  }
+
+  function setComponentValue(value) {
+    sendMessageToStreamlit("streamlit:setComponentValue", { value, dataType: "json" });
   }
 
   function formatPar(value) {
@@ -143,7 +163,16 @@
     const headRow = document.createElement("tr");
     const corner = document.createElement("th");
     corner.className = "row-label";
-    corner.textContent = "";
+    const syncButton = document.createElement("button");
+    syncButton.className = "sync-button";
+    syncButton.type = "button";
+    syncButton.textContent = "↻";
+    syncButton.title = "Oppdater resultater";
+    syncButton.setAttribute("aria-label", "Oppdater resultater");
+    syncButton.addEventListener("click", () => {
+      setComponentValue({ action: "sync", event_id: Date.now() });
+    });
+    corner.appendChild(syncButton);
     headRow.appendChild(corner);
 
     rows.forEach((row) => {

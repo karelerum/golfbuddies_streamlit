@@ -1,5 +1,6 @@
 import streamlit as st
 
+from aiapi.live_round import LiveRoundError, finalize_live_round_session
 from ui.pages.live_runde_data import load_live_round_context
 from ui.pages.live_runde_views import (
     render_all_scores_mode,
@@ -17,9 +18,25 @@ def page():
         return
 
     if ctx["round_finished"] and not ctx["has_more_rounds"]:
+        finalization_error_key = f"live_finalization_error_{ctx['live_rundeid']}"
+        if finalization_error_key in st.session_state:
+            st.error(st.session_state[finalization_error_key])
+            if st.button("Prøv igjen", key=f"retry_finalization_{ctx['base_key']}"):
+                st.session_state.pop(finalization_error_key, None)
+                st.rerun()
+            return
+        try:
+            with st.spinner("Lagrer ferdig runde ..."):
+                finalize_live_round_session(str(ctx["live_rundeid"]), str(ctx["acting_player"]))
+        except LiveRoundError as exc:
+            st.session_state[finalization_error_key] = str(exc)
+            st.rerun()
+            return
+
         st.session_state.pop(f"live_hole_{ctx['base_key']}", None)
         st.session_state.pop(ctx["show_all_key"], None)
         st.session_state.pop(ctx["edit_all_scores_key"], None)
+        st.session_state.pop(finalization_error_key, None)
         st.session_state["live_runde_view"] = "slag_slutt"
         st.rerun()
         return

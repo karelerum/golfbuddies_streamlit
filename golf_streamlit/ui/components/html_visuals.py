@@ -13,7 +13,13 @@ _live_overview_component = components.declare_component("live_overview_table", p
 _all_scores_component = components.declare_component("all_scores_table", path=str(_ALL_SCORES_DIR))
 
 
-def register_btns(par: int, key: str, spillere: list[str] | None = None, scores: dict[str, int] | None = None) -> dict | str | None:
+def register_btns(
+    par: int,
+    key: str,
+    spillere: list[str] | None = None,
+    scores: dict[str, int] | None = None,
+    hole: int | None = None,
+) -> dict | str | None:
     """Render the score keypad, optionally with a player name/score table above it.
 
     Without `spillere`, returns the clicked score as a string ("1".."11").
@@ -28,13 +34,13 @@ def register_btns(par: int, key: str, spillere: list[str] | None = None, scores:
     A birdie/eagle/hole-in-one click pops up a badge animation inside the component itself.
     """
     return _register_btns_component(
-        par=int(par), spillere=spillere or [], scores=scores or {}, badges=get_badge_data_uris(), key=key, default=None
+        par=int(par), hole=hole, spillere=spillere or [], scores=scores or {}, badges=get_badge_data_uris(), key=key, default=None
     )
 
 
-def live_overview_table(rows: list[dict], key: str) -> None:
+def live_overview_table(rows: list[dict], key: str) -> dict | None:
     """Render a compact read-only live round overview table."""
-    _live_overview_component(rows=rows, key=key, default=None)
+    return _live_overview_component(rows=rows, key=key, default=None)
 
 
 def all_scores_table(rows: list[dict], players: list[str], key: str, editable: bool = False) -> dict | None:

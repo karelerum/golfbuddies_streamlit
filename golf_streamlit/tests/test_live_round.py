@@ -1,4 +1,5 @@
 import unittest
+from contextlib import nullcontext
 from unittest.mock import Mock, patch
 
 import pandas as pd
@@ -7,10 +8,12 @@ from aiapi.live_round import (
     LIVE_ROUNDS_TABLE,
     LiveRoundError,
     _build_completed_live_round_df,
+    _set_slag_runde_ind,
     advance_to_next_live_round,
     confirm_live_hole,
     create_live_round,
     delete_live_round,
+    finalize_live_round_session,
     get_live_overview,
     get_live_round_candidates,
     get_live_round_details,
@@ -19,56 +22,57 @@ from aiapi.live_round import (
     update_live_round_setup,
 )
 from ui.pages.live_runde_data import _build_all_scores_rows, _build_overview_rows
-from ui.pages.live_runde_views import _all_scores_registered
+from ui.pages.live_runde_views import _all_scores_registered, _is_registration_submit_event
 
 
 class LiveRoundTests(unittest.TestCase):
-    def setUp(self):
-        self.live_sheet_backup = patch(
-            "aiapi.live_round.write_live_round_df_to_gsheet",
-            return_value=Mock(ok=True, warning_count=0, status_message=lambda: "ok"),
-        )
-        self.live_sheet_backup.start()
-
-    def tearDown(self):
-        self.live_sheet_backup.stop()
-
     def test_all_scores_registered_requires_a_score_for_every_player(self):
         self.assertFalse(_all_scores_registered(["Tore", "Kari"], {"Tore": 4}))
         self.assertFalse(_all_scores_registered([], {}))
         self.assertTrue(_all_scores_registered(["Tore", "Kari"], {"Tore": 4, "Kari": 5}))
 
-    @patch("aiapi.live_round._save_live_rounds_df")
-    @patch("aiapi.live_round._get_live_rounds_df")
-    @patch("aiapi.live_round.set_cached_df")
-    @patch("aiapi.live_round.my_dfs.save_table_df", return_value=True)
+    def test_registration_submit_requires_new_user_click_for_current_hole(self):
+        valid_event = {"user_clicked": True, "event_id": "event-1", "hole": 2, "scores": {"Tore": 5}}
+
+        self.assertTrue(_is_registration_submit_event(valid_event, 2, None))
+        self.assertFalse(_is_registration_submit_event(valid_event, 3, None))
+        self.assertFalse(_is_registration_submit_event(valid_event, 2, "event-1"))
+        self.assertFalse(_is_registration_submit_event({**valid_event, "user_clicked": False}, 2, None))
+        self.assertFalse(_is_registration_submit_event({"hole": 2, "scores": {"Tore": 5}}, 2, None))
+
+    @patch("aiapi.live_round.clear_cached_df")
+    @patch("aiapi.live_round.update_sqlite_row")
+    @patch("aiapi.live_round.get_sqlite_df")
+    @patch("aiapi.live_round._fresh_session_in_transaction")
+    @patch("aiapi.live_round.db.transaction")
     @patch("aiapi.live_round._get_par_by_hull", return_value={1: 4})
-    @patch("aiapi.live_round._get_round_score_df")
     @patch("aiapi.live_round.get_live_round_access")
-    def test_save_live_hole_scores_saves_active_group_in_one_write(
+    def test_save_live_hole_scores_updates_only_active_group_columns(
         self,
         mock_get_access,
-        mock_get_score_df,
         _mock_par_by_hull,
-        mock_save_table_df,
-        mock_set_cached_df,
-        mock_get_live_rounds_df,
-        _mock_save_live_rounds_df,
+        mock_transaction,
+        mock_fresh_session,
+        mock_get_sqlite_df,
+        mock_update_sqlite_row,
+        mock_clear_cached_df,
     ):
         round_setup = {"runde": 1, "score_table": "live_score_123", "gruppe_klar": {"1": [], "2": []}}
-        session = {"rundeoppsett": [round_setup]}
+        session = {"bane": "Fana", "rundeoppsett": [round_setup]}
         score_df = pd.DataFrame({"hull": [1], "Tore": [pd.NA], "Kari": [pd.NA], "Ola": [5]})
         mock_get_access.return_value = {"session": session, "gruppe": 1, "spillere": ["Tore", "Kari"]}
-        mock_get_score_df.return_value = score_df
-        mock_get_live_rounds_df.return_value = pd.DataFrame({"live_rundeid": ["live_123"], "rundeoppsett": ["[]"]})
+        mock_transaction.return_value = nullcontext(Mock())
+        mock_fresh_session.return_value = (session, pd.DataFrame())
+        mock_get_sqlite_df.return_value = score_df
 
         save_live_hole_scores("live_123", "Tore", 1, {"Tore": 4, "Kari": 3})
 
-        saved_score_df = mock_save_table_df.call_args.args[1]
-        self.assertEqual(mock_save_table_df.call_count, 1)
-        self.assertEqual(saved_score_df.loc[0, ["Tore", "Kari", "Ola"]].tolist(), [4, 3, 5])
-        self.assertEqual(mock_set_cached_df.call_args.args[0], "live_score_123")
-        self.assertEqual(mock_set_cached_df.call_args.args[1].loc[0, "Kari"], 3)
+        score_update = mock_update_sqlite_row.call_args_list[0]
+        self.assertEqual(score_update.args[1:4], ("live_score_123", "hull", 1))
+        self.assertEqual(score_update.args[4], {"Tore": 4, "Kari": 3})
+        self.assertNotIn("Ola", score_update.args[4])
+        self.assertEqual(mock_update_sqlite_row.call_args_list[1].args[1], LIVE_ROUNDS_TABLE)
+        mock_clear_cached_df.assert_any_call("live_score_123")
 
     @patch("aiapi.live_round.my_dfs.save_table_df", return_value=True)
     @patch("aiapi.live_round._get_par_by_hull", return_value={1: 4})
@@ -136,7 +140,6 @@ class LiveRoundTests(unittest.TestCase):
 
         self.assertEqual(candidates_df["rundeid"].tolist(), ["20260101"])
 
-    @patch("aiapi.live_round.sync_df_to_gsheet", return_value=Mock(ok=True, status_message=lambda: "ok"))
     @patch("aiapi.live_round.my_dfs.save_round_info_df", return_value=True)
     @patch("aiapi.live_round.get_cached_df", return_value=None)
     @patch("aiapi.live_round.set_cached_df")
@@ -167,7 +170,6 @@ class LiveRoundTests(unittest.TestCase):
         set_cached_df,
         _get_cached_df,
         _save_round_info_df,
-        _sync_df_to_gsheet,
     ):
         live_rundeid = create_live_round(
             "20260101",
@@ -212,13 +214,12 @@ class LiveRoundTests(unittest.TestCase):
         with self.assertRaisesRegex(LiveRoundError, "Antall runder"):
             create_live_round("20260101", "Test", ["Tore"], [], antall_runder=4)
 
-    @patch("aiapi.live_round.sync_df_to_gsheet", return_value=Mock(ok=True, status_message=lambda: "ok"))
     @patch("aiapi.live_round.my_dfs.save_round_info_df", return_value=True)
     @patch("aiapi.live_round.my_dfs.get_round_info_df", return_value=pd.DataFrame({"rundeid": ["20260101"], "slag_runde_ind": [1]}))
     @patch("aiapi.live_round._save_live_rounds_df")
     @patch("aiapi.live_round._get_live_rounds_df")
     def test_delete_live_round_removes_matching_row(
-        self, mock_get_live_rounds_df, mock_save_live_rounds_df, _get_round_info_df, _save_round_info_df, _sync_df_to_gsheet
+        self, mock_get_live_rounds_df, mock_save_live_rounds_df, _get_round_info_df, _save_round_info_df
     ):
         mock_get_live_rounds_df.return_value = pd.DataFrame(
             {"live_rundeid": ["live_123", "live_456"], "source_rundeid": ["20260101", "20260102"]}
@@ -228,6 +229,114 @@ class LiveRoundTests(unittest.TestCase):
 
         saved_df = mock_save_live_rounds_df.call_args.args[0]
         self.assertEqual(saved_df["live_rundeid"].tolist(), ["live_456"])
+
+    @patch("aiapi.gsheet_sync.sync_df_to_gsheet")
+    @patch("aiapi.live_round.my_dfs.save_round_info_df", return_value=True)
+    @patch(
+        "aiapi.live_round.my_dfs.get_round_info_df",
+        return_value=pd.DataFrame({"rundeid": ["20260101"], "slag_runde_ind": [0]}),
+    )
+    def test_live_round_flag_is_local_only(self, _get_round_info_df, save_round_info_df, sync_df_to_gsheet):
+        _set_slag_runde_ind("20260101", 1)
+
+        self.assertEqual(save_round_info_df.call_args.args[0].loc[0, "slag_runde_ind"], 1)
+        sync_df_to_gsheet.assert_not_called()
+
+    @patch("aiapi.live_round._save_completed_live_round")
+    @patch("aiapi.live_round._set_slag_runde_ind")
+    @patch("aiapi.live_round._set_finalization_status")
+    @patch("aiapi.live_round.clear_cached_df")
+    @patch("aiapi.live_round.update_sqlite_row")
+    @patch("aiapi.live_round._fresh_session_in_transaction")
+    @patch("aiapi.live_round.db.transaction")
+    @patch("aiapi.live_round.get_live_round_access")
+    def test_finalize_live_round_syncs_once_after_all_rounds_complete(
+        self,
+        mock_get_access,
+        mock_transaction,
+        mock_fresh_session,
+        _mock_update_row,
+        _mock_clear_cache,
+        mock_set_status,
+        mock_set_flag,
+        mock_save_completed,
+    ):
+        session = {
+            "source_rundeid": "20260101",
+            "type_runde": "Slag",
+            "rundeoppsett": [{"runde": 1, "score_table": "live_score_123", "fullfort": True}],
+        }
+        mock_get_access.return_value = {"session": session}
+        mock_transaction.return_value = nullcontext(Mock())
+        mock_fresh_session.return_value = (session, pd.DataFrame())
+        mock_save_completed.return_value = Mock(sync_report=Mock(ok=True))
+
+        finalize_live_round_session("live_123", "Tore")
+
+        mock_set_flag.assert_called_once_with("20260101", 0)
+        mock_save_completed.assert_called_once_with(session)
+        mock_set_status.assert_called_once_with("live_123", session, "completed")
+
+    @patch("aiapi.live_round._save_completed_live_round")
+    @patch("aiapi.live_round._set_finalization_status")
+    @patch("aiapi.live_round.clear_cached_df")
+    @patch("aiapi.live_round.update_sqlite_row")
+    @patch("aiapi.live_round._fresh_session_in_transaction")
+    @patch("aiapi.live_round.db.transaction")
+    @patch("aiapi.live_round.get_live_round_access")
+    def test_finalize_live_round_marks_failed_sync_for_retry(
+        self,
+        mock_get_access,
+        mock_transaction,
+        mock_fresh_session,
+        _mock_update_row,
+        _mock_clear_cache,
+        mock_set_status,
+        mock_save_completed,
+    ):
+        session = {
+            "source_rundeid": "20260101",
+            "type_runde": "Slag",
+            "rundeoppsett": [{"runde": 1, "score_table": "live_score_123", "fullfort": True}],
+        }
+        mock_get_access.return_value = {"session": session}
+        mock_transaction.return_value = nullcontext(Mock())
+        mock_fresh_session.return_value = (session, pd.DataFrame())
+        mock_save_completed.return_value = Mock(sync_report=Mock(ok=False))
+
+        with self.assertRaisesRegex(LiveRoundError, "ikke fullført"):
+            finalize_live_round_session("live_123", "Tore")
+
+        mock_set_status.assert_called_once_with("live_123", session, "failed")
+
+    @patch("aiapi.live_round._save_completed_live_round")
+    @patch("aiapi.live_round._fresh_session_in_transaction")
+    @patch("aiapi.live_round.db.transaction")
+    @patch("aiapi.live_round.get_live_round_access")
+    def test_finalize_live_round_is_noop_when_already_completed(
+        self,
+        mock_get_access,
+        mock_transaction,
+        mock_fresh_session,
+        mock_save_completed,
+    ):
+        session = {
+            "rundeoppsett": [
+                {
+                    "runde": 1,
+                    "score_table": "live_score_123",
+                    "fullfort": True,
+                    "finalization_status": "completed",
+                }
+            ]
+        }
+        mock_get_access.return_value = {"session": session}
+        mock_transaction.return_value = nullcontext(Mock())
+        mock_fresh_session.return_value = (session, pd.DataFrame())
+
+        finalize_live_round_session("live_123", "Tore")
+
+        mock_save_completed.assert_not_called()
 
     def test_delete_live_round_rejects_unknown_id(self):
         with patch("aiapi.live_round._get_live_rounds_df", return_value=pd.DataFrame({"live_rundeid": ["live_456"]})):
@@ -410,10 +519,21 @@ class LiveRoundTests(unittest.TestCase):
         self.assertTrue(saved_score_df["Ola"].isna().all())
         mock_save_live_rounds_df.assert_called_once()
 
-    @patch("aiapi.live_round._save_live_rounds_df")
-    @patch("aiapi.live_round._get_live_rounds_df")
+    @patch("aiapi.live_round.clear_cached_df")
+    @patch("aiapi.live_round.update_sqlite_row")
+    @patch("aiapi.live_round.get_sqlite_df")
+    @patch("aiapi.live_round._fresh_session_in_transaction")
+    @patch("aiapi.live_round.db.transaction")
     @patch("aiapi.live_round.get_live_round_access")
-    def test_confirm_live_hole_requires_both_groups_before_marking_fullfort(self, mock_get_access, mock_get_live_rounds_df, _mock_save):
+    def test_confirm_live_hole_requires_both_groups_before_marking_fullfort(
+        self,
+        mock_get_access,
+        mock_transaction,
+        mock_fresh_session,
+        mock_get_sqlite_df,
+        _mock_update_sqlite_row,
+        _mock_clear_cached_df,
+    ):
         round_setup = {
             "runde": 1,
             "score_table": "live_score_123",
@@ -421,19 +541,19 @@ class LiveRoundTests(unittest.TestCase):
             "fullfort": False,
         }
         session = {"rundeoppsett": [round_setup]}
+        mock_transaction.return_value = nullcontext(Mock())
+        mock_fresh_session.side_effect = lambda _conn, _live_id, _fallback: (session, pd.DataFrame())
         mock_get_access.return_value = {"session": session, "gruppe": 1, "spillere": ["Tore"]}
-        mock_get_live_rounds_df.return_value = pd.DataFrame({"live_rundeid": ["live_123"], "rundeoppsett": ["[]"]})
+        mock_get_sqlite_df.return_value = pd.DataFrame({"hull": [1, 2], "Tore": [3, 4], "Ola": [4, 5]})
 
-        with patch("aiapi.live_round._get_round_score_df", return_value=pd.DataFrame({"hull": [1, 2], "Tore": [3, 4]})):
-            is_published_after_group1 = confirm_live_hole("live_123", "Tore", 2)
+        is_published_after_group1 = confirm_live_hole("live_123", "Tore", 2)
 
         # Kun gruppe 1 har bekreftet hull 2 (siste hull) - runden skal IKKE være fullført.
         self.assertFalse(is_published_after_group1)
         self.assertFalse(round_setup["fullfort"])
 
         mock_get_access.return_value = {"session": session, "gruppe": 2, "spillere": ["Ola"]}
-        with patch("aiapi.live_round._get_round_score_df", return_value=pd.DataFrame({"hull": [1, 2], "Ola": [4, 5]})):
-            is_published_after_group2 = confirm_live_hole("live_123", "Ola", 2)
+        is_published_after_group2 = confirm_live_hole("live_123", "Ola", 2)
 
         # Begge grupper har nå bekreftet siste hull - runden er fullført.
         self.assertTrue(is_published_after_group2)
