@@ -207,7 +207,12 @@ def page():
                         axis=alt.Axis(labelAngle=0, labels=False, ticks=False, domain=False),
                     ),
                     y=alt.Y("value:Q", title=None, stack="zero", axis=None),
-                    color=alt.Color("bane:N", title="Bane", sort=bane_order),
+                    color=alt.Color(
+                        "bane:N",
+                        title="Bane",
+                        sort=bane_order,
+                        legend=alt.Legend(orient="bottom", direction="horizontal"),
+                    ),
                     order=alt.Order("bane_order:Q", sort="ascending"),
                     tooltip=[
                         alt.Tooltip("spiller:N", title="Spiller"),

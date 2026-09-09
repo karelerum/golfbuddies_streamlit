@@ -212,4 +212,5 @@ def page():
         st.session_state.pop(seed_key, None)
         st.session_state.live_session_id = live_rundeid
         st.session_state.live_runde_view = "slag"
+        st.session_state.live_open_next_hole_for = live_rundeid
         st.rerun()

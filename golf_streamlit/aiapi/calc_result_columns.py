@@ -13,12 +13,8 @@ Tests cover:
   - Max slag validation (no one exceeds par+6)
   - Data integrity checks
 """
-import sqlite3
 import pandas as pd
 import numpy as np
-import logging
-
-logger = logging.getLogger(__name__)
 
 def recalculate_placement(df: pd.DataFrame) -> pd.DataFrame:
     """

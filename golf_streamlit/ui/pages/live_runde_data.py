@@ -87,6 +87,11 @@ def _get_acting_player(session: dict, current_player: str, active_group: int | N
     return current_player, active_group
 
 
+def _first_unconfirmed_hole(holes: list[int], confirmed_holes: set[int]) -> int | None:
+    """Return the lowest-numbered hole not yet confirmed by the active group."""
+    return next((hole for hole in sorted(holes) if hole not in confirmed_holes), None)
+
+
 def load_live_round_context() -> dict | None:
     """Resolve session, state and derived values for the current player; renders info/warning and returns None if nothing can be shown yet."""
     live_rundeid = st.session_state.get("live_session_id")
@@ -117,8 +122,10 @@ def load_live_round_context() -> dict | None:
     base_key = f"{live_rundeid}_{round_number}_{state['gruppe']}"
 
     hole_key = f"live_hole_{base_key}"
-    if st.session_state.get(hole_key) not in holes:
-        st.session_state[hole_key] = holes[0]
+    open_at_next_hole = st.session_state.pop("live_open_next_hole_for", None) == str(live_rundeid)
+    next_unconfirmed_hole = _first_unconfirmed_hole(holes, state["group_confirmed_hulls"])
+    if open_at_next_hole or st.session_state.get(hole_key) not in holes:
+        st.session_state[hole_key] = next_unconfirmed_hole if next_unconfirmed_hole is not None else holes[-1]
     hole = st.session_state[hole_key]
 
     par = state["par_by_hull"].get(hole)

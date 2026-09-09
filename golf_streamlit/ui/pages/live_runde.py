@@ -132,6 +132,7 @@ def _render_round_card(round_row: dict, is_admin: bool) -> None:
             if st.button("Åpne runde", key=f"open_live_round_{live_rundeid}", type="primary", use_container_width=True):
                 st.session_state.live_session_id = live_rundeid
                 st.session_state.live_runde_view = "slag"
+                st.session_state.live_open_next_hole_for = live_rundeid
                 st.rerun()
 
         if is_admin:

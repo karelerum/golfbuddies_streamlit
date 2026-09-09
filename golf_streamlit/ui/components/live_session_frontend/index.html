@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <script>
+    const STORAGE_KEY = "golf-streamlit-live-round";
+
+    function sendMessageToStreamlit(type, data) {
+      const outboundData = Object.assign({ isStreamlitMessage: true, type }, data);
+      window.parent.postMessage(outboundData, "*");
+    }
+
+    function setComponentValue(value) {
+      sendMessageToStreamlit("streamlit:setComponentValue", { value, dataType: "json" });
+    }
+
+    function setFrameHeight() {
+      sendMessageToStreamlit("streamlit:setFrameHeight", { height: 0 });
+    }
+
+    function getStoredPayload() {
+      try {
+        const rawPayload = window.sessionStorage.getItem(STORAGE_KEY);
+        return rawPayload ? JSON.parse(rawPayload) : null;
+      } catch (error) {
+        window.sessionStorage.removeItem(STORAGE_KEY);
+        return null;
+      }
+    }
+
+    function renderComponent(args) {
+      if (args.clear) {
+        window.sessionStorage.removeItem(STORAGE_KEY);
+      } else if (args.payload && typeof args.payload === "object") {
+        window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(args.payload));
+      }
+      setComponentValue({ ready: true, payload: getStoredPayload() });
+      setFrameHeight();
+    }
+
+    window.addEventListener("message", (event) => {
+      if (event.data.type === "streamlit:render") {
+        renderComponent(event.data.args || {});
+      }
+    });
+
+    sendMessageToStreamlit("streamlit:componentReady", { apiVersion: 1 });
+  </script>
+</head>
+<body></body>
+</html>

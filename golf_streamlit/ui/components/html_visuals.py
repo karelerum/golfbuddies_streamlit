@@ -8,9 +8,11 @@ from ui.components.badge_animation import get_badge_data_uris
 _REGISTER_BTNS_DIR = Path(__file__).parent / "register_btns_frontend"
 _LIVE_OVERVIEW_DIR = Path(__file__).parent / "live_overview_frontend"
 _ALL_SCORES_DIR = Path(__file__).parent / "all_scores_frontend"
+_LIVE_SESSION_DIR = Path(__file__).parent / "live_session_frontend"
 _register_btns_component = components.declare_component("register_btns", path=str(_REGISTER_BTNS_DIR))
 _live_overview_component = components.declare_component("live_overview_table", path=str(_LIVE_OVERVIEW_DIR))
 _all_scores_component = components.declare_component("all_scores_table", path=str(_ALL_SCORES_DIR))
+_live_session_component = components.declare_component("live_round_session", path=str(_LIVE_SESSION_DIR))
 
 
 def register_btns(
@@ -48,65 +50,9 @@ def all_scores_table(rows: list[dict], players: list[str], key: str, editable: b
     return _all_scores_component(rows=rows, players=players, editable=editable, key=key, default=None)
 
 
-def register_number_btn(value: str, label: str, key: str, bredde: int = 104) -> None:
-    """Render a square visual number-button prototype for the live score keypad."""
-    bredde = max(64, min(int(bredde), 104))
-    value_size = max(28, round(bredde * 0.4))
-    st.markdown(
-        f"""
-        <div id="{key}" style="
-            width: min(100%, {bredde}px);
-            aspect-ratio: 1;
-            margin: 4px;
-            padding: 12px;
-            border: 1px solid #b8cfc0;
-            border-radius: 6px;
-            background: #e7f0e8;
-            color: #20352d;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            text-align: center;
-            box-sizing: border-box;
-        ">
-            <div style="font-size: {value_size}px; font-weight: 700; line-height: 1;">{value}</div>
-            <div style="font-size: 13px; line-height: 1.25;">{label}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def register_tekst_btn(tekst: str, key: str, bredde: int = 104) -> None:
-    """Render a square visual text-button prototype for live registration controls."""
-    bredde = max(64, min(int(bredde), 104))
-    st.markdown(
-        f"""
-        <div id="{key}" style="
-            width: min(100%, {bredde}px);
-            aspect-ratio: 1;
-            margin: 4px;
-            padding: 12px;
-            border: 1px solid #b8cfc0;
-            border-radius: 6px;
-            background: #e7f0e8;
-            color: #20352d;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-            font-size: 15px;
-            font-weight: 600;
-            line-height: 1.25;
-            box-sizing: border-box;
-        ">
-            {tekst}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+def live_round_session(payload: dict | None, clear: bool = False) -> dict | None:
+    """Synchronize the active Live Runde with browser session storage."""
+    return _live_session_component(payload=payload, clear=clear, key="live_round_session", default=None)
 
 
 def render_test_card(title: str, body: str) -> None:
