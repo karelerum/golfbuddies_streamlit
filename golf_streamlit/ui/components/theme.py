@@ -23,13 +23,16 @@ def apply_global_styles() -> None:
             background: var(--golf-canvas);
         }}
         [data-testid="stHeader"] {{
-            background: transparent;
+            display: none;
+        }}
+        [data-testid="stDecoration"] {{
+            display: none;
         }}
         [data-testid="stToolbar"] {{
             visibility: hidden;
         }}
         [data-testid="stMainBlockContainer"] {{
-            padding-top: 2rem;
+            padding-top: 0.75rem;
             padding-bottom: 3rem;
         }}
         [data-testid="stVerticalBlockBorderWrapper"] {{

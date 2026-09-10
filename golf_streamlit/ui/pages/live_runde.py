@@ -5,7 +5,7 @@ import streamlit as st
 
 from aiapi.auth import get_logged_in_player
 from aiapi.back_df_round import _is_admin_player
-from aiapi.live_round import LiveRoundError, delete_live_round, get_active_live_rounds
+from aiapi.live_round import LiveRoundError, delete_live_round, get_active_live_rounds, is_test_session
 import ui.pages.live_runde_slag as subpage_live_runde_slag
 import ui.pages.live_runde_slag_slutt as subpage_live_runde_slag_slutt
 import ui.pages.setup_live_runde as subpage_setup_live_runde
@@ -113,11 +113,12 @@ def _render_round_card(round_row: dict, is_admin: bool) -> None:
     title = str(round_row.get("tittel") or f"Runde {round_row['runde']}")
     group_lines = _round_group_lines(round_row.get("spillere"))
     groups_html = "<br>".join(html.escape(line) for line in group_lines) or "<span>Ingen grupper satt</span>"
+    test_html = " | TEST" if is_test_session(round_row) else ""
 
     with st.container(key=f"round_card_{live_rundeid}"):
         st.markdown(
             f'<p class="round-card-title">{html.escape(title)}</p>'
-            f'<p class="round-card-meta">Bane: {html.escape(str(round_row["bane"]))} | Runder: {html.escape(str(round_row.get("antall_runder", 1)))}</p>'
+            f'<p class="round-card-meta">Bane: {html.escape(str(round_row["bane"]))} | Runder: {html.escape(str(round_row.get("antall_runder", 1)))}{test_html}</p>'
             f'<p class="round-card-groups">{groups_html}</p>'
             f'<div class="round-card-divider"></div>',
             unsafe_allow_html=True,

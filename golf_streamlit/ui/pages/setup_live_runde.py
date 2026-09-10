@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 
 from aiapi.back_df_round import _is_admin_player
-from aiapi.live_round import LiveRoundError, create_live_round, get_live_round_candidates, get_live_round_details, update_live_round_setup
+from aiapi.live_round import LiveRoundError, create_live_round, get_live_round_candidates, get_live_round_details, is_test_session, update_live_round_setup
 from aiapi.round_result import get_tournament_p6_totals
 from aiapi.tournament_setup import get_course_options, get_player_options, get_tournament_list_df
-from config.constants import LIVE_ROUND_TYPE_6P, LIVE_ROUND_TYPE_SLAG, LIVE_ROUND_TYPES
+from config.constants import LIVE_ROUND_TYPE_6P, LIVE_ROUND_TYPE_SLAG, LIVE_ROUND_TYPES, TEST_LIVE_HOLES
 
 
 def _selected_players(group_number: int, player_options: list[str]) -> list[str]:
@@ -63,17 +63,31 @@ def page():
         disabled=bool(editing_session),
     )
 
+    test_ind = st.checkbox(
+        "Test",
+        value=is_test_session(editing_session) if editing_session else False,
+        disabled=bool(editing_session),
+        key="live_round_test_ind",
+    )
+    if test_ind:
+        st.caption(
+            f"Testrunde: kun {TEST_LIVE_HOLES} hull, og ingenting lagres til Google Sheets, "
+            "vanlig runde-tabell, resultat eller merker. Kilderunden låses ikke."
+        )
+
     source_rundeid = None
     new_round_turneringsid = None
     new_round_bane = None
     if editing_session:
         st.caption(f"Kilderunde: {editing_session['source_rundeid']} (kan ikke endres)")
     elif type_runde == LIVE_ROUND_TYPE_6P:
-        round_source_mode = st.radio(
-            "Kilde", ["Velg eksisterende runde", "Opprett ny runde"], key="live_6p_round_source", horizontal=True
+        round_source_mode = (
+            "Velg eksisterende runde"
+            if test_ind
+            else st.radio("Kilde", ["Velg eksisterende runde", "Opprett ny runde"], key="live_6p_round_source", horizontal=True)
         )
         if round_source_mode == "Velg eksisterende runde":
-            candidates_df = get_live_round_candidates()
+            candidates_df = get_live_round_candidates(include_active=test_ind)
             if candidates_df.empty:
                 st.info("Det finnes ingen ikke-fullførte runder tilgjengelig for Live Runde.")
             else:
@@ -102,7 +116,7 @@ def page():
                 else:
                     st.info("Fant ingen baner.")
     else:
-        candidates_df = get_live_round_candidates()
+        candidates_df = get_live_round_candidates(include_active=test_ind)
         if candidates_df.empty:
             st.info("Det finnes ingen ikke-fullførte runder tilgjengelig for Live Runde.")
         else:
@@ -126,7 +140,7 @@ def page():
     if len(group_1) > 4:
         st.error("Gruppe 1 kan ha maksimalt fire spillere.")
 
-    st.markdown("#### Gruppe 2")
+    st.markdown("#### Gruppe 2 (valgfri)")
     group_2 = _selected_players(2, player_options)
     if len(group_2) > 4:
         st.error("Gruppe 2 kan ha maksimalt fire spillere.")
@@ -139,7 +153,7 @@ def page():
         st.markdown("#### Poeng fra turnering (startverdi)")
         preview_turneringsid = None
         if source_rundeid:
-            candidates_df = get_live_round_candidates()
+            candidates_df = get_live_round_candidates(include_active=test_ind)
             match = candidates_df.loc[candidates_df["rundeid"] == source_rundeid]
             if not match.empty:
                 preview_turneringsid = str(match.iloc[0]["turneringsid"])
@@ -203,6 +217,7 @@ def page():
                     antall_runder,
                     new_round_turneringsid=new_round_turneringsid,
                     new_round_bane=new_round_bane,
+                    test_ind=test_ind,
                 )
         except LiveRoundError as exc:
             st.error(str(exc))

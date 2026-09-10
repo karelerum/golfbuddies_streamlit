@@ -17,6 +17,10 @@ def page():
     if ctx is None:
         return
 
+    is_test = bool(ctx["state"].get("test_ind"))
+    if is_test:
+        st.warning("TESTRUNDE – ingenting lagres")
+
     if ctx["round_finished"] and not ctx["has_more_rounds"]:
         finalization_error_key = f"live_finalization_error_{ctx['live_rundeid']}"
         if finalization_error_key in st.session_state:
@@ -26,7 +30,7 @@ def page():
                 st.rerun()
             return
         try:
-            with st.spinner("Lagrer ferdig runde ..."):
+            with st.spinner("Avslutter testrunde ..." if is_test else "Lagrer ferdig runde ..."):
                 finalize_live_round_session(str(ctx["live_rundeid"]), str(ctx["acting_player"]))
         except LiveRoundError as exc:
             st.session_state[finalization_error_key] = str(exc)

@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
@@ -9,10 +10,12 @@ _REGISTER_BTNS_DIR = Path(__file__).parent / "register_btns_frontend"
 _LIVE_OVERVIEW_DIR = Path(__file__).parent / "live_overview_frontend"
 _ALL_SCORES_DIR = Path(__file__).parent / "all_scores_frontend"
 _LIVE_SESSION_DIR = Path(__file__).parent / "live_session_frontend"
+_COUNTDOWN_TIMER_DIR = Path(__file__).parent / "countdown_timer_frontend"
 _register_btns_component = components.declare_component("register_btns", path=str(_REGISTER_BTNS_DIR))
 _live_overview_component = components.declare_component("live_overview_table", path=str(_LIVE_OVERVIEW_DIR))
 _all_scores_component = components.declare_component("all_scores_table", path=str(_ALL_SCORES_DIR))
 _live_session_component = components.declare_component("live_round_session", path=str(_LIVE_SESSION_DIR))
+_countdown_timer_component = components.declare_component("countdown_timer", path=str(_COUNTDOWN_TIMER_DIR))
 
 
 def register_btns(
@@ -60,3 +63,33 @@ def render_test_card(title: str, body: str) -> None:
     with st.container(border=True):
         st.subheader(title)
         st.write(body)
+
+
+def render_countdown_timer(deadline: datetime, label: str = "") -> None:
+    """Render a live client-side countdown (days/timer/min/sek) with a trophy icon and a close (x) button.
+
+    Uses a bidirectional custom component (not `components.html`) so the close click can tell Python to
+    stop rendering it entirely — a plain `components.html` iframe always reserves its fixed `height`,
+    even once hidden client-side, leaving dead space. Closing only affects this session; it reappears on
+    the next full app open/refresh.
+    """
+    closed_key = "countdown_timer_closed"
+    placeholder = st.empty()
+    if st.session_state.get(closed_key):
+        placeholder.empty()
+        return
+
+    with placeholder.container():
+        result = _countdown_timer_component(
+            year=deadline.year,
+            month=deadline.month,
+            day=deadline.day,
+            hour=deadline.hour,
+            minute=deadline.minute,
+            label=label,
+            key="countdown_timer",
+            default=None,
+        )
+    if isinstance(result, dict) and result.get("action") == "close":
+        st.session_state[closed_key] = True
+        st.rerun()

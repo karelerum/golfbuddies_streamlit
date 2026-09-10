@@ -9,15 +9,16 @@ from aiapi.calc_live_to_round import calculate_live_round_df
 from aiapi.calc_result_columns import recalculate_6points, recalculate_placement
 from aiapi.round_result import get_tournament_p6_totals
 from aiapi.round_save import RoundSaveError, save_round_and_sync
-from aiapi.sqlite import db, get_sqlite_df, table_exists, update_sqlite_row
+from aiapi.sqlite import db, drop_sqlite_table, get_sqlite_df, table_exists, update_sqlite_row
 from aiapi.tournament_setup import create_round_in_tournament, delete_round_from_tournament
-from config.constants import LIVE_ROUND_TYPE_6P, LIVE_ROUND_TYPE_SLAG, LIVE_ROUND_TYPES
+from config.constants import LIVE_ROUND_TYPE_6P, LIVE_ROUND_TYPE_SLAG, LIVE_ROUND_TYPES, TEST_LIVE_HOLES
 from src import my_dfs
 
 
 LIVE_ROUNDS_TABLE = "live_runder"
 LIVE_TABLE_PREFIX = "live_runde_"
-LIVE_ROUND_COLUMNS = ["live_rundeid", "source_rundeid", "score_table", "created_at", "tittel", "type_runde", "antall_runder", "spillere", "rundeoppsett"]
+LIVE_TEST_TABLE_PREFIX = "live_runde_test_"
+LIVE_ROUND_COLUMNS = ["live_rundeid", "source_rundeid", "score_table", "created_at", "tittel", "type_runde", "antall_runder", "test_ind", "spillere", "rundeoppsett"]
 logger = logging.getLogger(__name__)
 
 
@@ -29,8 +30,26 @@ def _timestamp() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _live_score_table_name(source_rundeid: str, round_number: int = 1) -> str:
-    return f"{LIVE_TABLE_PREFIX}{source_rundeid}_runde_{round_number}"
+def _live_score_table_name(source_rundeid: str, round_number: int = 1, is_test: bool = False) -> str:
+    prefix = LIVE_TEST_TABLE_PREFIX if is_test else LIVE_TABLE_PREFIX
+    return f"{prefix}{source_rundeid}_runde_{round_number}"
+
+
+def is_test_session(session: dict) -> bool:
+    """Read the test flag robustly from a session dict or a raw SQLite row value."""
+    value = session.get("test_ind", 0)
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return False
+    return str(value).strip().lower() in {"1", "true", "ja"}
+
+
+def _template_hull_df(source_round_df: pd.DataFrame, is_test: bool) -> pd.DataFrame:
+    """Return the hull column for a new live scorecard, limited to the first holes for test rounds."""
+    hull_df = source_round_df[["hull"]].copy()
+    if not is_test:
+        return hull_df
+    hull_df["_sort"] = pd.to_numeric(hull_df["hull"], errors="coerce")
+    return hull_df.sort_values("_sort").head(TEST_LIVE_HOLES).drop(columns=["_sort"]).reset_index(drop=True)
 
 
 def _get_live_rounds_df() -> pd.DataFrame:
@@ -49,7 +68,7 @@ def _get_live_rounds_df() -> pd.DataFrame:
     if missing_columns:
         missing_display = ", ".join(sorted(missing_columns))
         raise LiveRoundError(f"live_runder mangler kolonner: {missing_display}")
-    for column, default_value in {"tittel": "", "type_runde": LIVE_ROUND_TYPE_SLAG, "antall_runder": 1, "spillere": "[]", "rundeoppsett": "[]"}.items():
+    for column, default_value in {"tittel": "", "type_runde": LIVE_ROUND_TYPE_SLAG, "antall_runder": 1, "test_ind": 0, "spillere": "[]", "rundeoppsett": "[]"}.items():
         if column not in live_rounds_df.columns:
             live_rounds_df[column] = default_value
     return live_rounds_df
@@ -111,8 +130,8 @@ def _build_player_setup(
     ]
 
 
-def get_live_round_candidates() -> pd.DataFrame:
-    """Return ordinary, unfinished rounds that do not already have a live session."""
+def get_live_round_candidates(include_active: bool = False) -> pd.DataFrame:
+    """Return ordinary, unfinished rounds; with include_active also those already used by a live session (test rounds)."""
     round_info_df = my_dfs.get_round_info_df()
     if round_info_df is None or round_info_df.empty:
         return pd.DataFrame(columns=["rundeid", "turneringsid", "runde", "bane"])
@@ -137,7 +156,8 @@ def get_live_round_candidates() -> pd.DataFrame:
         ["rundeid", "turneringsid", "runde", "bane"],
     ].copy()
     candidates_df["rundeid"] = candidates_df["rundeid"].astype(str)
-    candidates_df = candidates_df.loc[~candidates_df["rundeid"].isin(active_source_ids)]
+    if not include_active:
+        candidates_df = candidates_df.loc[~candidates_df["rundeid"].isin(active_source_ids)]
     return candidates_df.sort_values(["turneringsid", "runde", "rundeid"]).reset_index(drop=True)
 
 
@@ -231,9 +251,12 @@ def _get_par_by_hull(session: dict) -> dict[int, int]:
     return {int(row["hull"]): int(row["par"]) for _, row in par_df.dropna().iterrows()}
 
 
-def _published_hulls(round_setup: dict) -> set[int]:
+def _published_hulls(session: dict, round_setup: dict) -> set[int]:
+    """Holes confirmed by every group that actually has players (a live round can have just one group)."""
     group_status = round_setup.get("gruppe_klar", {})
-    return set(group_status.get("1", [])).intersection(group_status.get("2", []))
+    active_groups = {str(int(player["gruppe"])) for player in session.get("spillere", [])} or {"1", "2"}
+    confirmed_sets = [set(group_status.get(group_key, [])) for group_key in sorted(active_groups)]
+    return set.intersection(*confirmed_sets) if confirmed_sets else set()
 
 
 def _fresh_session_in_transaction(conn, live_rundeid: str, fallback_session: dict) -> tuple[dict, pd.DataFrame]:
@@ -344,7 +367,7 @@ def confirm_live_hole(live_rundeid: str, current_player: str, hull: int) -> bool
         group_status = round_setup.setdefault("gruppe_klar", {"1": [], "2": []})
         group_key = str(access["gruppe"])
         group_status[group_key] = sorted(set(group_status.get(group_key, []) + [int(hull)]))
-        is_published = int(hull) in _published_hulls(round_setup)
+        is_published = int(hull) in _published_hulls(session, round_setup)
         all_holes = set(pd.to_numeric(score_df["hull"], errors="coerce").dropna().astype(int))
         if is_published and all_holes and int(hull) == max(all_holes):
             round_setup["fullfort"] = True
@@ -414,11 +437,14 @@ def get_live_overview(live_rundeid: str, current_player: str) -> pd.DataFrame:
     session = access["session"]
     round_setup = _get_round_setup(session)
     score_df = _get_round_score_df(round_setup)
-    published_hulls = _published_hulls(round_setup)
+    published_hulls = _published_hulls(session, round_setup)
     par_by_hull = _get_par_by_hull(session)
     is_6p = session.get("type_runde") == LIVE_ROUND_TYPE_6P
     player_names = [item["spiller"] for item in session["spillere"]]
     points_by_player = _compute_live_points(score_df, par_by_hull, published_hulls, player_names) if is_6p else {}
+    current_round_number = int(round_setup["runde"])
+    # Earlier rounds in a multi-round session are already finished, so their strokes are fully visible.
+    previous_round_setups = [rs for rs in session["rundeoppsett"] if int(rs["runde"]) < current_round_number]
     rows = []
     for player_name in player_names:
         is_own_group = player_name in access["spillere"]
@@ -432,11 +458,24 @@ def get_live_overview(live_rundeid: str, current_player: str) -> pd.DataFrame:
         par_total = sum(par_by_hull.get(int(hull), 0) for hull in player_scores.loc[scores.notna(), "hull"])
         startverdi = int(round_setup.get("startverdier", {}).get(player_name, 0))
         rundens_slag = int(scores.sum())
+        dagens_par = rundens_slag - par_total
+        previous_slag = 0
+        for previous_round_setup in previous_round_setups:
+            previous_score_df = _get_round_score_df(previous_round_setup)
+            previous_scores = pd.to_numeric(previous_score_df.get(player_name, pd.Series(dtype=float)), errors="coerce")
+            previous_slag += int(previous_scores.fillna(0).sum())
         if is_own_group or published_hulls:
-            row = {"spiller": player_name, "spillers_par": startverdi + int(scores.sum()) - par_total, "rundens_slag": rundens_slag}
+            row = {
+                "spiller": player_name,
+                "spillers_par": startverdi + int(scores.sum()) - par_total,
+                "dagens_par": dagens_par,
+                "rundens_slag": rundens_slag,
+                "totalt_slag": previous_slag + rundens_slag,
+            }
             if is_6p:
                 start_poeng = round_setup.get("start_poeng", {}).get(player_name, 0)
-                row["poeng"] = float(start_poeng) + points_by_player.get(player_name, 0.0)
+                row["dagens_poeng"] = points_by_player.get(player_name, 0.0)
+                row["poeng"] = float(start_poeng) + row["dagens_poeng"]
             rows.append(row)
     overview_df = pd.DataFrame(rows)
     if is_6p and "poeng" in overview_df.columns:
@@ -455,10 +494,11 @@ def get_live_round_state(live_rundeid: str, current_player: str) -> dict:
         "runde": int(round_setup["runde"]),
         "score_df": _get_round_score_df(round_setup),
         "par_by_hull": _get_par_by_hull(access["session"]),
-        "published_hulls": _published_hulls(round_setup),
+        "published_hulls": _published_hulls(access["session"], round_setup),
         "group_confirmed_hulls": set(round_setup.get("gruppe_klar", {}).get(str(access["gruppe"]), [])),
         "fullfort": bool(round_setup.get("fullfort", False)),
         "antall_runder": int(access["session"].get("antall_runder", 1)),
+        "test_ind": is_test_session(access["session"]),
     }
 
 
@@ -557,9 +597,10 @@ def advance_to_next_live_round(live_rundeid: str, current_player: str) -> int:
     if source_round_df is None or source_round_df.empty or "hull" not in source_round_df.columns:
         raise LiveRoundError("Fant ikke scorekortmal for neste runde.")
 
+    is_test = is_test_session(session)
     next_round_number = round_number + 1
-    next_score_table = _live_score_table_name(str(session["source_rundeid"]), next_round_number)
-    next_score_df = source_round_df[["hull"]].copy()
+    next_score_table = _live_score_table_name(str(session["source_rundeid"]), next_round_number, is_test=is_test)
+    next_score_df = _template_hull_df(source_round_df, is_test)
     for player in session["spillere"]:
         next_score_df[player["spiller"]] = pd.NA
 
@@ -596,11 +637,15 @@ def _advance_to_next_6p_round(live_rundeid: str, session: dict, round_setup: dic
     bane = str(current_round_info.iloc[0]["bane"])
     player_names = [str(player["spiller"]) for player in session.get("spillere", [])]
 
+    is_test = is_test_session(session)
     next_round_number = round_number + 1
-    next_rundeid = create_round_in_tournament(turneringsid, bane, player_names, sync_to_gsheet=False)
-    next_score_table = _live_score_table_name(next_rundeid, next_round_number)
+    # Testrunder gjenbruker samme kilderunde i stedet for å opprette en ekte turneringsrunde.
+    next_rundeid = current_rundeid if is_test else create_round_in_tournament(turneringsid, bane, player_names, sync_to_gsheet=False)
+    next_score_table = _live_score_table_name(next_rundeid, next_round_number, is_test=is_test)
     next_round_df = my_dfs.get_round_df(next_rundeid)
-    next_score_df = next_round_df[["hull"]].copy()
+    if next_round_df is None or next_round_df.empty or "hull" not in next_round_df.columns:
+        raise LiveRoundError(f"Fant ikke scorekortmal for runde {next_rundeid}.")
+    next_score_df = _template_hull_df(next_round_df, is_test)
     for player_name in player_names:
         next_score_df[player_name] = pd.NA
 
@@ -608,7 +653,7 @@ def _advance_to_next_6p_round(live_rundeid: str, session: dict, round_setup: dic
         {
             "runde": next_round_number,
             "rundeid": next_rundeid,
-            "nyopprettet": True,
+            "nyopprettet": not is_test,
             "score_table": next_score_table,
             "startverdier": {player_name: 0 for player_name in player_names},
             "start_poeng": get_tournament_p6_totals(turneringsid),
@@ -664,6 +709,7 @@ def create_live_round(
     antall_runder: int = 1,
     new_round_turneringsid: str | None = None,
     new_round_bane: str | None = None,
+    test_ind: bool = False,
 ) -> str:
     """Create an isolated live scorecard from the selected setup players."""
     tittel = str(tittel).strip()
@@ -673,6 +719,9 @@ def create_live_round(
         raise LiveRoundError(f"Ukjent rundetype: {type_runde}.")
     if antall_runder not in {1, 2, 3}:
         raise LiveRoundError("Antall runder må være 1, 2 eller 3.")
+    test_ind = bool(test_ind)
+    if test_ind and source_rundeid is None:
+        raise LiveRoundError("En testrunde må bruke en eksisterende runde som mal.")
 
     player_setup = _build_player_setup(group_1, group_2, None if type_runde == LIVE_ROUND_TYPE_6P else startverdier)
 
@@ -689,7 +738,7 @@ def create_live_round(
         newly_created_round = True
     source_rundeid = str(source_rundeid)
 
-    candidates_df = get_live_round_candidates()
+    candidates_df = get_live_round_candidates(include_active=test_ind)
     if source_rundeid not in set(candidates_df["rundeid"]):
         if newly_created_round:
             delete_round_from_tournament(source_rundeid, sync_to_gsheet=False)
@@ -707,13 +756,15 @@ def create_live_round(
     if "hull" not in source_round_df.columns:
         raise LiveRoundError(f"Runde {source_rundeid} mangler hull-kolonnen.")
 
-    live_score_df = source_round_df[["hull"]].copy()
+    live_score_df = _template_hull_df(source_round_df, test_ind)
     for player in player_setup:
         live_score_df[player["spiller"]] = pd.NA
 
-    score_table = _live_score_table_name(source_rundeid)
+    score_table = _live_score_table_name(source_rundeid, is_test=test_ind)
     live_rundeid = score_table
     live_rounds_df = _get_live_rounds_df()
+    if live_rundeid in set(live_rounds_df["live_rundeid"].astype(str)):
+        raise LiveRoundError(f"Det finnes allerede en aktiv live-runde for {source_rundeid}.")
     first_round_setup = {
         "runde": 1,
         "rundeid": source_rundeid,
@@ -734,6 +785,7 @@ def create_live_round(
             "tittel": tittel,
             "type_runde": type_runde,
             "antall_runder": antall_runder,
+            "test_ind": int(test_ind),
             "spillere": json.dumps(player_setup),
             "rundeoppsett": json.dumps([first_round_setup]),
         }]
@@ -751,7 +803,7 @@ def create_live_round(
     except Exception:
         pass
 
-    if type_runde == LIVE_ROUND_TYPE_SLAG:
+    if type_runde == LIVE_ROUND_TYPE_SLAG and not test_ind:
         _set_slag_runde_ind(source_rundeid, 1)
 
     return live_rundeid
@@ -766,12 +818,21 @@ def delete_live_round(live_rundeid: str) -> None:
     session_row = live_rounds_df.loc[row_mask].iloc[0]
     source_rundeid = str(session_row["source_rundeid"])
     type_runde = str(session_row.get("type_runde") or LIVE_ROUND_TYPE_SLAG)
+    try:
+        rundeoppsett = json.loads(str(session_row.get("rundeoppsett") or "[]"))
+    except json.JSONDecodeError:
+        rundeoppsett = []
+
+    if is_test_session(session_row.to_dict()):
+        for round_setup in rundeoppsett:
+            score_table = str(round_setup.get("score_table") or "")
+            if score_table.startswith(LIVE_TEST_TABLE_PREFIX):
+                drop_sqlite_table(score_table)
+                clear_cached_df(score_table)
+        _save_live_rounds_df(live_rounds_df.loc[~row_mask].reset_index(drop=True))
+        return
 
     if type_runde == LIVE_ROUND_TYPE_6P:
-        try:
-            rundeoppsett = json.loads(str(session_row.get("rundeoppsett") or "[]"))
-        except json.JSONDecodeError:
-            rundeoppsett = []
         for round_setup in rundeoppsett:
             rundeid = str(round_setup.get("rundeid") or "")
             if rundeid and round_setup.get("nyopprettet"):
@@ -864,7 +925,7 @@ def finalize_live_round_session(live_rundeid: str, current_player: str) -> None:
         session, _ = _fresh_session_in_transaction(conn, live_rundeid, access["session"])
         round_setups = session.get("rundeoppsett", [])
         if not round_setups or not all(bool(round_setup.get("fullfort")) for round_setup in round_setups):
-            raise LiveRoundError("Begge grupper må fullføre hele live-runden før sluttsynk.")
+            raise LiveRoundError("Alle grupper må fullføre hele live-runden før sluttsynk.")
 
         final_setup = round_setups[-1]
         current_status = str(final_setup.get("finalization_status") or "")
@@ -872,7 +933,8 @@ def finalize_live_round_session(live_rundeid: str, current_player: str) -> None:
             return
         if current_status == "pending":
             raise LiveRoundError("Sluttsynk pågår allerede. Prøv igjen om litt.")
-        final_setup["finalization_status"] = "pending"
+        is_test = is_test_session(session)
+        final_setup["finalization_status"] = "completed" if is_test else "pending"
         update_sqlite_row(
             conn,
             LIVE_ROUNDS_TABLE,
@@ -884,6 +946,9 @@ def finalize_live_round_session(live_rundeid: str, current_player: str) -> None:
     clear_cached_df(LIVE_ROUNDS_TABLE)
     for round_setup in round_setups:
         clear_cached_df(str(round_setup["score_table"]))
+
+    if is_test:
+        return
 
     try:
         if session.get("type_runde") == LIVE_ROUND_TYPE_6P:

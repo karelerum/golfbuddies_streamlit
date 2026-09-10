@@ -18,9 +18,15 @@ def _build_overview_rows(overview_df: pd.DataFrame) -> list[dict]:
         {
             "plassering": int(row["plassering"]),
             "spiller": str(row["spiller"]),
-            "spillers_par": int(row["spillers_par"]),
-            "rundens_slag": int(row["rundens_slag"]),
-            **({"poeng": float(row["poeng"])} if has_poeng else {}),
+            "totalt_par": int(row["spillers_par"]),
+            "dagens_par": int(row["dagens_par"]),
+            "totalt_slag": int(row["totalt_slag"]),
+            "dagens_slag": int(row["rundens_slag"]),
+            **(
+                {"poeng": float(row["poeng"]), "dagens_poeng": float(row.get("dagens_poeng", 0))}
+                if has_poeng
+                else {}
+            ),
         }
         for _, row in overview_df.iterrows()
     ]

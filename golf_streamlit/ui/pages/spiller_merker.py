@@ -17,6 +17,19 @@ def _available_badge_files() -> set[str]:
         return set()
 
 
+def _badge_description(badge: dict) -> str:
+    for key in ("forklaring", "beskrivelse", "description"):
+        value = badge.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def _render_badge_info(description: str, key: str) -> None:
+    if st.button("Info", key=key, use_container_width=True):
+        st.info(description or "Ingen forklaring er tilgjengelig for dette merket.")
+
+
 def page():
     current_player = st.session_state.get("innlogget_spiller")
     if not current_player:
@@ -24,6 +37,12 @@ def page():
         return
 
     st.title("Merker")
+
+    show_badge_info = st.toggle(
+        "Vis info-knapper",
+        value=False,
+        key="player_badges_show_info",
+    )
 
     tournament_filter_label = st.segmented_control(
         "Velg sesong",
@@ -61,16 +80,22 @@ def page():
 
     # Join with merker to get prioritet for sorting
     merker_df = my_dfs.get_merker_df()
-    if (
-        merker_df is not None
-        and not merker_df.empty
-        and "merke_id" in merker_df.columns
-        and "prioritet" in merker_df.columns
-    ):
-        prio_df = merker_df[["merke_id", "prioritet"]].drop_duplicates(subset=["merke_id"])
-        player_df = player_df.merge(prio_df, on="merke_id", how="left")
-    else:
+    if merker_df is not None and not merker_df.empty and "merke_id" in merker_df.columns:
+        badge_meta_cols = ["merke_id", "prioritet"]
+        if "forklaring" in merker_df.columns:
+            badge_meta_cols.append("forklaring")
+        badge_meta_cols = [column for column in dict.fromkeys(badge_meta_cols) if column in merker_df.columns]
+        if badge_meta_cols:
+            prio_df = merker_df[badge_meta_cols].drop_duplicates(subset=["merke_id"])
+            player_df = player_df.drop(columns=["forklaring"], errors="ignore").merge(
+                prio_df,
+                on="merke_id",
+                how="left",
+            )
+    if "prioritet" not in player_df.columns:
         player_df["prioritet"] = 0
+    if "forklaring" not in player_df.columns:
+        player_df["forklaring"] = ""
 
     player_df["prioritet"] = player_df["prioritet"].fillna(0)
     player_df = player_df.sort_values(
@@ -83,10 +108,13 @@ def page():
         player_df["vinner_innen"].isin(["turnering", "totalt", "total"])
         | player_df["filnavn"].isin(_HOVED_FILNAVN)
     )
-    hoved_badges = player_df.loc[is_hoved, ["filnavn", "visningsnavn", "_count"]].to_dict("records")
+    hoved_badges = player_df.loc[
+        is_hoved,
+        ["filnavn", "visningsnavn", "_count", "forklaring"],
+    ].to_dict("records")
     runde_badges = player_df.loc[
         ~is_hoved & ~player_df["filnavn"].isin(_HOVED_FILNAVN),
-        ["filnavn", "visningsnavn", "_count"],
+        ["filnavn", "visningsnavn", "_count", "forklaring"],
     ].to_dict("records")
 
     def _render_grid(badges: list[dict], grid_name: str, n_cols: int = _COLS) -> None:
@@ -113,6 +141,7 @@ def page():
             filnavn = str(badge.get("filnavn", ""))
             count = int(badge.get("_count", 1))
             visningsnavn = str(badge.get("visningsnavn", ""))
+            description = _badge_description(badge)
             label = f"{visningsnavn} ×{count}" if count > 1 else visningsnavn
             with cols[i % n_cols]:
                 if filnavn in available_files:
@@ -120,6 +149,8 @@ def page():
                 else:
                     st.markdown("fil ikke funnet.")
                 st.caption(label)
+                if show_badge_info:
+                    _render_badge_info(description, f"badge_info_{grid_name}_{i}_{filnavn}")
 
     st.subheader("Hovedmerker")
     _render_grid(hoved_badges, "hoved")

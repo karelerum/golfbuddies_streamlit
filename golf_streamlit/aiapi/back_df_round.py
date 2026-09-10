@@ -7,6 +7,26 @@ from src import my_dfs
 ADMIN_PLAYERS = set(ADM_PLAYERS)
 
 
+def _safe_error_value(value) -> str:
+    try:
+        return str(value)
+    except Exception:
+        return repr(value)
+
+
+def _format_invalid_values(values: pd.Series, limit: int = 5) -> str:
+    rendered = []
+    seen = set()
+    for value in values.tolist():
+        display = _safe_error_value(value)
+        if display not in seen:
+            rendered.append(display)
+            seen.add(display)
+        if len(rendered) >= limit:
+            break
+    return ", ".join(rendered)
+
+
 def _is_blank_series(series: pd.Series) -> pd.Series:
     normalized_series = series.astype("string")
     stripped_series = normalized_series.str.strip()
@@ -250,8 +270,7 @@ def _prepare_round_df(round_df: pd.DataFrame) -> pd.DataFrame:
     prepared_df["hull"] = pd.to_numeric(prepared_df["hull"], errors="coerce").astype("Int64")
     invalid_hull_mask = ~_is_blank_series(raw_hull) & prepared_df["hull"].isna()
     if invalid_hull_mask.any():
-        invalid_values = raw_hull.loc[invalid_hull_mask].astype(str).unique().tolist()
-        invalid_display = ", ".join(invalid_values[:5])
+        invalid_display = _format_invalid_values(raw_hull.loc[invalid_hull_mask])
         raise ValueError(f"Ugyldige hullverdier i rundetabellen: {invalid_display}")
 
     player_columns = [column for column in prepared_df.columns if column != "hull"]
@@ -264,8 +283,7 @@ def _prepare_round_df(round_df: pd.DataFrame) -> pd.DataFrame:
         prepared_df[column] = pd.to_numeric(prepared_df[column], errors="coerce").astype("Int64")
         invalid_value_mask = ~_is_blank_series(raw_values) & prepared_df[column].isna()
         if invalid_value_mask.any():
-            invalid_values = raw_values.loc[invalid_value_mask].astype(str).unique().tolist()
-            invalid_display = ", ".join(invalid_values[:5])
+            invalid_display = _format_invalid_values(raw_values.loc[invalid_value_mask])
             raise ValueError(f"Ugyldige slagverdier i kolonnen '{column}': {invalid_display}")
 
     return prepared_df

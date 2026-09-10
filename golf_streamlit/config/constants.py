@@ -3,7 +3,15 @@ Project-wide constants for Golf Streamlit application.
 Centralized configuration for database, Google Sheets, and scoring parameters.
 """
 
+from datetime import datetime
 from pathlib import Path
+
+# ============================================================================
+# Countdown timer
+# ============================================================================
+
+# Used until an admin overrides it via Adm -> Diverse.
+DEFAULT_COUNTDOWN_TIMER_DEADLINE = datetime(2026, 9, 19, 12, 0)
 
 # ============================================================================
 # Database Configuration
@@ -91,6 +99,9 @@ PENALTY_SLAG_THRESHOLD = 6
 
 # Number of holes (standard golf course)
 STANDARD_HOLES = 18
+
+# Number of holes in a live round marked as "Test"
+TEST_LIVE_HOLES = 3
 
 # Maximum players per round
 MAX_PLAYERS_PER_ROUND = 5

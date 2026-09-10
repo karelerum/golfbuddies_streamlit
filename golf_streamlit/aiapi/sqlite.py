@@ -412,6 +412,25 @@ def set_meta(key: str, value: str) -> bool:
         return False
 
 
+COUNTDOWN_TIMER_DEADLINE_META_KEY = "countdown_timer_deadline"
+
+
+def get_countdown_timer_deadline() -> datetime | None:
+    """Admin-configured countdown timer deadline, or None if never set."""
+    value = get_meta(COUNTDOWN_TIMER_DEADLINE_META_KEY)
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def set_countdown_timer_deadline(deadline: datetime) -> bool:
+    """Persist the admin-configured countdown timer deadline."""
+    return set_meta(COUNTDOWN_TIMER_DEADLINE_META_KEY, deadline.isoformat())
+
+
 # ============================================================================
 # GET FUNCTIONS - Lesing fra database
 # ============================================================================
@@ -576,7 +595,7 @@ def cleanup_sqlite_artifact_columns() -> list[str]:
 def drop_sqlite_table(table_name: str) -> bool:
     try:
         with db.connection() as conn:
-            conn.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+            conn.execute(f"DROP TABLE IF EXISTS {_quote_identifier(table_name)}")
         if table_name != AUDIT_LOG_TABLE:
             append_audit_log_entry("sqlite", "drop", table_name)
         return True

@@ -84,6 +84,11 @@ def page():
         return
 
     st.markdown('<h1 class="golf-page-title">Runde fullført 🏁</h1>', unsafe_allow_html=True)
+    if st.button("Lukk", key=f"close_finished_round_{ctx['base_key']}"):
+        st.session_state["live_runde_view"] = "oversikt"
+        st.rerun()
+    if ctx["state"].get("test_ind"):
+        st.warning("TESTRUNDE – ingenting lagres")
     _render_podium(ctx["overview_df"])
 
     render_overview_panel(ctx["live_rundeid"], ctx["acting_player"], ctx["hole"], ctx["overview_df"])
