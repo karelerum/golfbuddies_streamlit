@@ -102,6 +102,13 @@
   .par-value.under { color: #2f7758; }
   .par-value.over { color: #a66a2c; }
   .par-value.even { color: #52645b; }
+  .metric-label {
+    color: #60736a;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: left;
+    background: #ffffff;
+  }
   .empty-state {
     padding: 12px;
     text-align: center;
@@ -144,8 +151,40 @@
     return Number.isInteger(numberValue) ? String(numberValue) : numberValue.toFixed(1);
   }
 
+  function appendValueCell(tr, rawValue, type) {
+    const td = document.createElement("td");
+    const value = document.createElement("div");
+    if (type === "poeng") {
+      value.className = "score-value points-value";
+      value.textContent = formatPoeng(rawValue);
+    } else if (type === "par") {
+      value.className = `score-value par-value ${parClass(rawValue)}`;
+      value.textContent = formatPar(rawValue);
+    } else {
+      value.className = "score-value strokes-value";
+      value.textContent = String(rawValue);
+    }
+    td.appendChild(value);
+    tr.appendChild(td);
+  }
+
+  function appendPlayerHeader(tr, row) {
+    const th = document.createElement("th");
+    const placement = document.createElement("span");
+    placement.className = "placement";
+    placement.textContent = `${row.plassering}. `;
+    const name = document.createElement("span");
+    name.className = "player-name";
+    name.title = row.spiller;
+    name.textContent = row.spiller;
+    th.appendChild(placement);
+    th.appendChild(name);
+    tr.appendChild(th);
+  }
+
   function renderComponent(args) {
     const rows = Array.isArray(args.rows) ? args.rows : [];
+    const detailed = args.detailed === true;
     const root = document.getElementById("root");
     root.innerHTML = "";
 
@@ -169,13 +208,13 @@
     const hasPoeng = rows.some((row) => row.poeng !== undefined && row.poeng !== null);
     const columns = [];
     if (hasPoeng) {
-      columns.push({ label: "Totalt poeng", key: "poeng", type: "poeng" });
-      columns.push({ label: "Poeng", key: "dagens_poeng", type: "poeng" });
+      columns.push({ label: detailed ? "Totalt poeng" : "Poeng", key: "poeng", type: "poeng" });
+      if (detailed) columns.push({ label: "Poeng", key: "dagens_poeng", type: "poeng" });
     }
-    columns.push({ label: "Totalt par", key: "totalt_par", type: "par" });
-    columns.push({ label: "Dagens par", key: "dagens_par", type: "par" });
-    columns.push({ label: "Totalt slag", key: "totalt_slag", type: "strokes" });
-    columns.push({ label: "Dagens slag", key: "dagens_slag", type: "strokes" });
+    columns.push({ label: detailed ? "Totalt par" : "Par", key: "totalt_par", type: "par" });
+    if (detailed) columns.push({ label: "Dagens par", key: "dagens_par", type: "par" });
+    columns.push({ label: detailed ? "Totalt slag" : "Slag", key: "totalt_slag", type: "strokes" });
+    if (detailed) columns.push({ label: "Dagens slag", key: "dagens_slag", type: "strokes" });
 
     const thead = document.createElement("thead");
     const headRow = document.createElement("tr");
@@ -193,49 +232,49 @@
     corner.appendChild(syncButton);
     headRow.appendChild(corner);
 
-    columns.forEach((column) => {
-      const th = document.createElement("th");
-      th.textContent = column.label;
-      headRow.appendChild(th);
-    });
+    if (detailed) {
+      columns.forEach((column) => {
+        const th = document.createElement("th");
+        th.textContent = column.label;
+        headRow.appendChild(th);
+      });
+    } else {
+      rows.forEach((row) => appendPlayerHeader(headRow, row));
+    }
     thead.appendChild(headRow);
     table.appendChild(thead);
 
     const tbody = document.createElement("tbody");
-    rows.forEach((row) => {
-      const tr = document.createElement("tr");
-      const label = document.createElement("th");
-      label.className = "row-label";
-      const placement = document.createElement("span");
-      placement.className = "placement";
-      placement.textContent = `${row.plassering}. `;
-      const name = document.createElement("span");
-      name.className = "player-name";
-      name.title = row.spiller;
-      name.textContent = row.spiller;
-      label.appendChild(placement);
-      label.appendChild(name);
-      tr.appendChild(label);
+    if (detailed) {
+      rows.forEach((row) => {
+        const tr = document.createElement("tr");
+        const label = document.createElement("th");
+        label.className = "row-label";
+        const placement = document.createElement("span");
+        placement.className = "placement";
+        placement.textContent = `${row.plassering}. `;
+        const name = document.createElement("span");
+        name.className = "player-name";
+        name.title = row.spiller;
+        name.textContent = row.spiller;
+        label.appendChild(placement);
+        label.appendChild(name);
+        tr.appendChild(label);
 
-      columns.forEach((column) => {
-        const td = document.createElement("td");
-        const value = document.createElement("div");
-        const rawValue = row[column.key];
-        if (column.type === "poeng") {
-          value.className = "score-value points-value";
-          value.textContent = formatPoeng(rawValue);
-        } else if (column.type === "par") {
-          value.className = `score-value par-value ${parClass(rawValue)}`;
-          value.textContent = formatPar(rawValue);
-        } else {
-          value.className = "score-value strokes-value";
-          value.textContent = String(rawValue);
-        }
-        td.appendChild(value);
-        tr.appendChild(td);
+        columns.forEach((column) => appendValueCell(tr, row[column.key], column.type));
+        tbody.appendChild(tr);
       });
-      tbody.appendChild(tr);
-    });
+    } else {
+      columns.forEach((column) => {
+        const tr = document.createElement("tr");
+        const label = document.createElement("th");
+        label.className = "metric-label";
+        label.textContent = column.label;
+        tr.appendChild(label);
+        rows.forEach((row) => appendValueCell(tr, row[column.key], column.type));
+        tbody.appendChild(tr);
+      });
+    }
     table.appendChild(tbody);
 
     scroll.appendChild(table);

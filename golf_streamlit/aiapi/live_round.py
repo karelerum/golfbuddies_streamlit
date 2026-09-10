@@ -384,6 +384,38 @@ def confirm_live_hole(live_rundeid: str, current_player: str, hull: int) -> bool
     return is_published
 
 
+def reopen_live_round_for_registration(live_rundeid: str, current_player: str) -> int:
+    """Reopen the active group's last hole so a completed live round can be corrected and finalized again."""
+    access = get_live_round_access(live_rundeid, current_player)
+    with db.transaction(immediate=True) as conn:
+        session, _ = _fresh_session_in_transaction(conn, live_rundeid, access["session"])
+        round_setup = _get_round_setup(session)
+        score_table = str(round_setup["score_table"])
+        score_df = get_sqlite_df(score_table, strict=True, connection=conn)
+        holes = sorted(pd.to_numeric(score_df["hull"], errors="coerce").dropna().astype(int).tolist())
+        if not holes:
+            raise LiveRoundError("Fant ingen hull å åpne for registrering.")
+
+        last_hole = int(holes[-1])
+        group_status = round_setup.setdefault("gruppe_klar", {"1": [], "2": []})
+        group_key = str(access["gruppe"])
+        group_status[group_key] = [value for value in group_status.get(group_key, []) if int(value) != last_hole]
+        round_setup["fullfort"] = False
+        round_setup.pop("finalization_status", None)
+        update_sqlite_row(
+            conn,
+            LIVE_ROUNDS_TABLE,
+            "live_rundeid",
+            str(live_rundeid),
+            {"rundeoppsett": json.dumps(session["rundeoppsett"])},
+        )
+
+    _clear_live_session_cache(score_table)
+    if session.get("type_runde") == LIVE_ROUND_TYPE_SLAG and not is_test_session(session):
+        _set_slag_runde_ind(str(session["source_rundeid"]), 1)
+    return last_hole
+
+
 def _live_points_long_df(
     score_df: pd.DataFrame, par_by_hull: dict[int, int], published_hulls: set[int], player_names: list[str]
 ) -> pd.DataFrame:

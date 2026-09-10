@@ -80,10 +80,11 @@ def render_overview_panel(
     current_player: str,
     hole: int,
     overview_df: pd.DataFrame,
+    detailed: bool = False,
 ) -> None:
     """Oversikttabell: plassering/par/slag for alle spillere."""
     component_key = f"live_overview_{live_rundeid}_{current_player}"
-    result = live_overview_table(_build_overview_rows(overview_df), key=component_key)
+    result = live_overview_table(_build_overview_rows(overview_df), key=component_key, detailed=detailed)
     if not isinstance(result, dict) or result.get("action") != "sync":
         return
     event_id = result.get("event_id")

@@ -2,6 +2,7 @@
 
 import streamlit as st
 
+from aiapi.live_round import LiveRoundError, reopen_live_round_for_registration
 from ui.pages.live_runde_data import load_live_round_context
 from ui.pages.live_runde_views import render_all_scores_editor, render_overview_panel
 
@@ -84,14 +85,26 @@ def page():
         return
 
     st.markdown('<h1 class="golf-page-title">Runde fullført 🏁</h1>', unsafe_allow_html=True)
-    if st.button("Lukk", key=f"close_finished_round_{ctx['base_key']}"):
-        st.session_state["live_runde_view"] = "oversikt"
-        st.rerun()
+    with st.container(horizontal=True, vertical_alignment="center"):
+        if st.button("Lukk", key=f"close_finished_round_{ctx['base_key']}"):
+            st.session_state["live_runde_view"] = "oversikt"
+            st.rerun()
+        if st.button("Tilbake til registrering", key=f"reopen_finished_round_{ctx['base_key']}"):
+            try:
+                reopened_hole = reopen_live_round_for_registration(str(ctx["live_rundeid"]), str(ctx["acting_player"]))
+            except LiveRoundError as exc:
+                st.error(str(exc))
+            else:
+                st.session_state[ctx["hole_key"]] = reopened_hole
+                st.session_state[ctx["show_all_key"]] = False
+                st.session_state[ctx["edit_all_scores_key"]] = False
+                st.session_state["live_runde_view"] = "slag"
+                st.rerun()
     if ctx["state"].get("test_ind"):
         st.warning("TESTRUNDE – ingenting lagres")
     _render_podium(ctx["overview_df"])
 
-    render_overview_panel(ctx["live_rundeid"], ctx["acting_player"], ctx["hole"], ctx["overview_df"])
+    render_overview_panel(ctx["live_rundeid"], ctx["acting_player"], ctx["hole"], ctx["overview_df"], detailed=True)
     render_all_scores_editor(
         ctx["live_rundeid"],
         ctx["acting_player"],

@@ -43,9 +43,9 @@ def register_btns(
     )
 
 
-def live_overview_table(rows: list[dict], key: str) -> dict | None:
+def live_overview_table(rows: list[dict], key: str, detailed: bool = False) -> dict | None:
     """Render a compact read-only live round overview table."""
-    return _live_overview_component(rows=rows, key=key, default=None)
+    return _live_overview_component(rows=rows, detailed=detailed, key=key, default=None)
 
 
 def all_scores_table(rows: list[dict], players: list[str], key: str, editable: bool = False) -> dict | None:
