@@ -419,8 +419,8 @@ def reopen_live_round_for_registration(live_rundeid: str, current_player: str) -
 def _live_points_long_df(
     score_df: pd.DataFrame, par_by_hull: dict[int, int], published_hulls: set[int], player_names: list[str]
 ) -> pd.DataFrame:
-    """Long-format (hull, spiller, p6) for published holes, ranking all players in the live round together (used for 6P)."""
-    empty_columns = ["hull", "spiller", "p6"]
+    """Long-format P6 scores and placements for published holes in the live round."""
+    empty_columns = ["hull", "spiller", "plass", "p6"]
     if not published_hulls:
         return pd.DataFrame(columns=empty_columns)
     long_rows = []
@@ -462,6 +462,14 @@ def get_live_hole_points(
     """Per-hole P6 points for published holes only (used by the 'Alle slag' Poeng toggle)."""
     long_df = _live_points_long_df(score_df, par_by_hull, published_hulls, player_names)
     return {(int(row["hull"]), str(row["spiller"])): float(row["p6"]) for _, row in long_df.iterrows()}
+
+
+def get_live_hole_placements(
+    score_df: pd.DataFrame, par_by_hull: dict[int, int], published_hulls: set[int], player_names: list[str]
+) -> dict[tuple[int, str], int]:
+    """Per-hole P6 placements for registered scores on published holes."""
+    long_df = _live_points_long_df(score_df, par_by_hull, published_hulls, player_names)
+    return {(int(row["hull"]), str(row["spiller"])): int(row["plass"]) for _, row in long_df.iterrows()}
 
 
 def get_live_overview(live_rundeid: str, current_player: str) -> pd.DataFrame:

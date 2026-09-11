@@ -115,13 +115,26 @@
     font-weight: 600;
   }
   .score-readonly-wrap {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 2px;
-    min-height: 44px;
+    height: 44px;
     padding: 2px 0;
+    box-sizing: border-box;
+  }
+  .score-meta-badge {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    color: #7d8a84;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    pointer-events: none;
   }
   .score-symbol {
     display: inline-flex;
@@ -137,7 +150,7 @@
     letter-spacing: -0.02em;
   }
   .score-symbol.green {
-    background: #dff7e5;
+    background: transparent;
     color: #14613d;
     border: 2px solid #2e8f59;
     border-radius: 50%;
@@ -152,23 +165,24 @@
   .score-symbol.red {
     background: transparent;
     color: #111827;
-    border: 2px solid #cf4e4e;
+    border: 1px solid #cf4e4e;
     border-radius: 4px;
   }
-  .score-symbol.red.double {
+  .score-symbol.black {
     background: transparent;
     color: #111827;
-    border: 2px solid #cf4e4e;
+    border: 2px solid #111827;
     border-radius: 4px;
-    box-shadow: 0 0 0 2px #cf4e4e;
   }
   .score-caption {
+    position: absolute;
+    bottom: -5px;
+    left: -4px;
     color: #6f7d76;
     font-size: 9px;
     line-height: 1.1;
     font-weight: 700;
     letter-spacing: 0.02em;
-    text-transform: lowercase;
     margin-top: 4px;
   }
   .score-caption.strong {
@@ -236,7 +250,20 @@
     });
   }
 
-  function buildScoreBadge(scoreValue, parValue) {
+  function appendScoreSymbol(wrapper, symbolClass, scoreNumber, captionText, strongCaption) {
+    const symbol = document.createElement("div");
+    symbol.className = `score-symbol ${symbolClass}`;
+    symbol.textContent = String(scoreNumber);
+    wrapper.appendChild(symbol);
+    if (captionText) {
+      const caption = document.createElement("div");
+      caption.className = strongCaption ? "score-caption strong" : "score-caption";
+      caption.textContent = captionText;
+      wrapper.appendChild(caption);
+    }
+  }
+
+  function buildScoreBadge(scoreValue, parValue, placementValue) {
     const wrapper = document.createElement("div");
     wrapper.className = "score-readonly-wrap";
 
@@ -250,69 +277,29 @@
       return wrapper;
     }
 
+    // Hole in one always wins, even on par 3s where it would otherwise read as an eagle/albatross.
     const relative = scoreNumber - parNumber;
-    const isBirdie = relative === -1;
-    const isEagle = relative === -2;
-    const isBogey = relative === 1;
-    const isDoubleBogey = relative === 2;
-    const isBigBogey = relative >= 3;
-
-    if (isBirdie) {
-      const symbol = document.createElement("div");
-      symbol.className = "score-symbol green";
-      symbol.textContent = String(scoreNumber);
-      const caption = document.createElement("div");
-      caption.className = "score-caption";
-      caption.textContent = "birdie";
-      wrapper.appendChild(symbol);
-      wrapper.appendChild(caption);
-      return wrapper;
+    if (scoreNumber === 1) {
+      appendScoreSymbol(wrapper, "green", scoreNumber, "Hole in one");
+    } else if (relative === -1) {
+      appendScoreSymbol(wrapper, "green", scoreNumber, "birdie");
+    } else if (relative === -2) {
+      appendScoreSymbol(wrapper, "green double", scoreNumber, "eagle");
+    } else if (relative === 1) {
+      appendScoreSymbol(wrapper, "black", scoreNumber, null);
+    } else if (relative >= 2) {
+      appendScoreSymbol(wrapper, "red", scoreNumber, `+${relative}`, true);
+    } else {
+      const plain = document.createElement("span");
+      plain.className = "score-readonly";
+      plain.textContent = String(scoreNumber);
+      wrapper.appendChild(plain);
     }
 
-    if (isEagle) {
-      const symbol = document.createElement("div");
-      symbol.className = "score-symbol green double";
-      symbol.textContent = String(scoreNumber);
-      const caption = document.createElement("div");
-      caption.className = "score-caption";
-      caption.textContent = "eagle";
-      wrapper.appendChild(symbol);
-      wrapper.appendChild(caption);
-      return wrapper;
-    }
-
-    if (isBogey) {
-      const symbol = document.createElement("div");
-      symbol.className = "score-symbol red";
-      symbol.textContent = String(scoreNumber);
-      wrapper.appendChild(symbol);
-      return wrapper;
-    }
-
-    if (isDoubleBogey) {
-      const symbol = document.createElement("div");
-      symbol.className = "score-symbol red double";
-      symbol.textContent = String(scoreNumber);
-      wrapper.appendChild(symbol);
-      return wrapper;
-    }
-
-    if (isBigBogey) {
-      const symbol = document.createElement("div");
-      symbol.className = "score-symbol red double";
-      symbol.textContent = String(scoreNumber);
-      const caption = document.createElement("div");
-      caption.className = "score-caption strong";
-      caption.textContent = `+${relative}`;
-      wrapper.appendChild(symbol);
-      wrapper.appendChild(caption);
-      return wrapper;
-    }
-
-    const plain = document.createElement("span");
-    plain.className = "score-readonly";
-    plain.textContent = String(scoreNumber);
-    wrapper.appendChild(plain);
+    const metaBadge = document.createElement("span");
+    metaBadge.className = "score-meta-badge";
+    metaBadge.textContent = placementValue !== null && placementValue !== undefined ? String(placementValue) : "";
+    wrapper.appendChild(metaBadge);
     return wrapper;
   }
 
@@ -320,6 +307,7 @@
     lastArgs = args;
     const rows = Array.isArray(args.rows) ? args.rows : [];
     const players = Array.isArray(args.players) ? args.players : (Array.isArray(args.spillere) ? args.spillere : []);
+    const pointsMode = args.pointsMode === true;
     const root = document.getElementById("root");
     root.innerHTML = "";
 
@@ -371,18 +359,28 @@
       players.forEach((player) => {
         const td = document.createElement("td");
         const value = row.scores && row.scores[player] !== null && row.scores[player] !== undefined ? String(row.scores[player]) : "";
+        const placement = row.placements ? row.placements[player] : null;
         if (!args.editable) {
-          const valueElement = document.createElement("span");
-          valueElement.className = `score-readonly${value === "" ? " empty" : ""}`;
           const resolvedValue = value === "" ? "" : Number(value);
-          if (value !== "" && Number.isFinite(resolvedValue) && row.par !== null && row.par !== undefined) {
-            const badge = buildScoreBadge(resolvedValue, row.par);
-            badge.setAttribute("aria-label", `${player}, hull ${row.hull}: ${resolvedValue} (${row.par}-par)`);
+          if (!pointsMode && value !== "" && Number.isFinite(resolvedValue) && row.par !== null && row.par !== undefined) {
+            const badge = buildScoreBadge(resolvedValue, row.par, placement);
+            badge.setAttribute("aria-label", `${player}, hull ${row.hull}: ${resolvedValue} (${row.par}-par), plassering ${placement ?? "-"}`);
             td.appendChild(badge);
           } else {
+            const wrapper = document.createElement("div");
+            wrapper.className = "score-readonly-wrap";
+            const valueElement = document.createElement("span");
+            valueElement.className = `score-readonly${value === "" ? " empty" : ""}`;
             valueElement.textContent = value || "-";
             valueElement.setAttribute("aria-label", `${player}, hull ${row.hull}: ${value || "ikke registrert"}`);
-            td.appendChild(valueElement);
+            wrapper.appendChild(valueElement);
+            if (placement !== null && placement !== undefined) {
+              const metaBadge = document.createElement("span");
+              metaBadge.className = "score-meta-badge";
+              metaBadge.textContent = String(placement);
+              wrapper.appendChild(metaBadge);
+            }
+            td.appendChild(wrapper);
           }
         } else {
           const input = document.createElement("input");

@@ -12,8 +12,17 @@ def _score_value(value) -> int | None:
     return int(value)
 
 
-def _build_overview_rows(overview_df: pd.DataFrame) -> list[dict]:
+def _build_overview_rows(
+    overview_df: pd.DataFrame,
+    *,
+    previous_hole_points: dict[str, float] | None = None,
+    previous_hole_scores: dict[str, int] | None = None,
+    previous_points_hole: int | None = None,
+    previous_scores_hole: int | None = None,
+) -> list[dict]:
     has_poeng = "poeng" in overview_df.columns
+    previous_points = previous_hole_points or {}
+    previous_scores = previous_hole_scores or {}
     return [
         {
             "plassering": int(row["plassering"]),
@@ -27,9 +36,38 @@ def _build_overview_rows(overview_df: pd.DataFrame) -> list[dict]:
                 if has_poeng
                 else {}
             ),
+            **(
+                {
+                    "forrige_poeng": float(previous_points.get(str(row["spiller"]), 0.0)),
+                    "forrige_poeng_hull": previous_points_hole,
+                }
+                if previous_points
+                else {}
+            ),
+            **(
+                {
+                    "forrige_slag": int(previous_scores.get(str(row["spiller"]), 0)),
+                    "forrige_slag_hull": previous_scores_hole,
+                }
+                if previous_scores
+                else {}
+            ),
         }
         for _, row in overview_df.iterrows()
     ]
+
+
+def _score_placements(scores: dict[str, int | None]) -> dict[str, int | None]:
+    ranked_scores = sorted((score, player) for player, score in scores.items() if score is not None)
+    placements = {player: None for player in scores}
+    previous_score = None
+    placement = None
+    for index, (score, player) in enumerate(ranked_scores, start=1):
+        if score != previous_score:
+            placement = index
+            previous_score = score
+        placements[player] = placement
+    return placements
 
 
 def _build_all_scores_rows(
@@ -39,6 +77,7 @@ def _build_all_scores_rows(
     own_group_players: set[str] | None = None,
     published_hulls: set[int] | None = None,
     hole_points: dict[tuple[int, str], float] | None = None,
+    hole_placements: dict[tuple[int, str], int] | None = None,
 ) -> list[dict]:
     score_rows = score_df[["hull"] + player_names].copy()
     score_rows["hull"] = pd.to_numeric(score_rows["hull"], errors="coerce")
@@ -50,21 +89,26 @@ def _build_all_scores_rows(
         hull = int(row["hull"])
         par = par_by_hull.get(hull)
         scores_dict = {}
+        placements_dict = {}
         for player_name in player_names:
             if hole_points is not None:
                 scores_dict[player_name] = hole_points.get((hull, player_name))
+                placements_dict[player_name] = (hole_placements or {}).get((hull, player_name))
                 continue
             is_own_group = player_name in own_players
             if is_own_group or (hull in pub_hulls):
                 scores_dict[player_name] = _score_value(row[player_name])
             else:
                 scores_dict[player_name] = None
+        if hole_points is None:
+            placements_dict = _score_placements(scores_dict)
         rows.append(
             {
                 "hull": hull,
                 "par": int(par) if par is not None else None,
                 "max_score": int(par) + 6 if par is not None else None,
                 "scores": scores_dict,
+                "placements": placements_dict,
             }
         )
     return rows

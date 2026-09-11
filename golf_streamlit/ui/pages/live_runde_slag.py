@@ -1,6 +1,8 @@
+import pandas as pd
 import streamlit as st
 
-from aiapi.live_round import LiveRoundError, finalize_live_round_session
+from aiapi.live_round import LiveRoundError, finalize_live_round_session, get_live_hole_points
+from config.constants import LIVE_ROUND_TYPE_6P
 from ui.pages.live_runde_data import load_live_round_context
 from ui.pages.live_runde_views import (
     render_all_scores_mode,
@@ -62,7 +64,41 @@ def page():
     if ctx["own_group_finished"] and not ctx["round_finished"]:
         render_waiting_for_other_group_notice()
 
-    render_overview_panel(ctx["live_rundeid"], ctx["acting_player"], ctx["hole"], ctx["overview_df"])
+    previous_hole_points = None
+    previous_hole_scores = None
+    previous_points_hole = None
+    previous_scores_hole = None
+    if ctx["session"].get("type_runde") == LIVE_ROUND_TYPE_6P and show_all_scores:
+        score_df = ctx["score_df"].copy()
+        score_df["hull"] = pd.to_numeric(score_df["hull"], errors="coerce")
+        published_hulls = ctx["state"]["published_hulls"]
+        previous_points_hole = max(published_hulls) if published_hulls else None
+        previous_scores_hole = previous_points_hole
+        if previous_scores_hole is not None:
+            previous_row = score_df.loc[score_df["hull"].astype(int) == previous_scores_hole].iloc[0]
+            previous_hole_scores = {
+                player: int(previous_row.get(player, 0)) if pd.notna(previous_row.get(player)) else 0
+                for player in ctx["all_player_names"]
+            }
+        if previous_points_hole is not None:
+            hole_points = get_live_hole_points(
+                ctx["score_df"], ctx["state"]["par_by_hull"], published_hulls, ctx["all_player_names"]
+            )
+            previous_hole_points = {
+                player: float(hole_points.get((previous_points_hole, player), 0.0)) for player in ctx["all_player_names"]
+            }
+
+    render_overview_panel(
+        ctx["live_rundeid"],
+        ctx["acting_player"],
+        ctx["hole"],
+        ctx["overview_df"],
+        show_all_scores=show_all_scores,
+        previous_hole_points=previous_hole_points,
+        previous_hole_scores=previous_hole_scores,
+        previous_points_hole=previous_points_hole,
+        previous_scores_hole=previous_scores_hole,
+    )
 
     if show_all_scores:
         render_all_scores_mode(ctx)

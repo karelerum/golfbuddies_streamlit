@@ -43,14 +43,20 @@ def register_btns(
     )
 
 
-def live_overview_table(rows: list[dict], key: str, detailed: bool = False) -> dict | None:
+def live_overview_table(rows: list[dict], key: str, detailed: bool = False, show_all_scores: bool = False) -> dict | None:
     """Render a compact read-only live round overview table."""
-    return _live_overview_component(rows=rows, detailed=detailed, key=key, default=None)
+    return _live_overview_component(rows=rows, detailed=detailed, showAllScores=show_all_scores, key=key, default=None)
 
 
-def all_scores_table(rows: list[dict], players: list[str], key: str, editable: bool = False) -> dict | None:
+def all_scores_table(
+    rows: list[dict],
+    players: list[str],
+    key: str,
+    editable: bool = False,
+    points_mode: bool = False,
+) -> dict | None:
     """Render a read-only or editable live score grid and return changed cells."""
-    return _all_scores_component(rows=rows, players=players, editable=editable, key=key, default=None)
+    return _all_scores_component(rows=rows, players=players, editable=editable, pointsMode=points_mode, key=key, default=None)
 
 
 def live_round_session(payload: dict | None, clear: bool = False) -> dict | None:

@@ -4,7 +4,7 @@ import streamlit as st
 
 from aiapi.live_round import LiveRoundError, reopen_live_round_for_registration
 from ui.pages.live_runde_data import load_live_round_context
-from ui.pages.live_runde_views import render_all_scores_editor, render_overview_panel
+from ui.pages.live_runde_views import render_all_scores_mode, render_overview_panel
 
 _MEDAL_COLORS = {1: "#caa85e", 2: "#b8c4bd", 3: "#a66a2c"}
 _MEDAL_EMOJI = {1: "🥇", 2: "🥈", 3: "🥉"}
@@ -105,14 +105,4 @@ def page():
     _render_podium(ctx["overview_df"])
 
     render_overview_panel(ctx["live_rundeid"], ctx["acting_player"], ctx["hole"], ctx["overview_df"], detailed=True)
-    render_all_scores_editor(
-        ctx["live_rundeid"],
-        ctx["acting_player"],
-        ctx["score_df"],
-        ctx["all_player_names"],
-        set(ctx["player_names"]),
-        ctx["state"]["published_hulls"],
-        ctx["state"]["par_by_hull"],
-        editor_key=f"all_scores_summary_{ctx['base_key']}",
-        editable=False,
-    )
+    render_all_scores_mode(ctx)

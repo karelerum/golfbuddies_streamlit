@@ -5,7 +5,7 @@ import html
 import pandas as pd
 import streamlit as st
 
-from aiapi.live_round import LiveRoundError, advance_to_next_live_round, confirm_live_hole, get_live_hole_points, refresh_live_round_cache, save_live_hole_scores, save_live_score
+from aiapi.live_round import LiveRoundError, advance_to_next_live_round, confirm_live_hole, get_live_hole_placements, get_live_hole_points, refresh_live_round_cache, save_live_hole_scores, save_live_score
 from config.constants import LIVE_ROUND_TYPE_6P
 from ui.components.html_visuals import all_scores_table, live_overview_table, register_btns
 from ui.pages.live_runde_data import _build_all_scores_rows, _build_overview_rows
@@ -81,10 +81,23 @@ def render_overview_panel(
     hole: int,
     overview_df: pd.DataFrame,
     detailed: bool = False,
+    *,
+    show_all_scores: bool = False,
+    previous_hole_points: dict[str, float] | None = None,
+    previous_hole_scores: dict[str, int] | None = None,
+    previous_points_hole: int | None = None,
+    previous_scores_hole: int | None = None,
 ) -> None:
     """Oversikttabell: plassering/par/slag for alle spillere."""
     component_key = f"live_overview_{live_rundeid}_{current_player}"
-    result = live_overview_table(_build_overview_rows(overview_df), key=component_key, detailed=detailed)
+    rows = _build_overview_rows(
+        overview_df,
+        previous_hole_points=previous_hole_points if show_all_scores else None,
+        previous_hole_scores=previous_hole_scores if show_all_scores else None,
+        previous_points_hole=previous_points_hole if show_all_scores else None,
+        previous_scores_hole=previous_scores_hole if show_all_scores else None,
+    )
+    result = live_overview_table(rows, key=component_key, detailed=detailed, show_all_scores=show_all_scores)
     if not isinstance(result, dict) or result.get("action") != "sync":
         return
     event_id = result.get("event_id")
@@ -183,6 +196,7 @@ def render_all_scores_editor(
     editor_key: str,
     editable: bool,
     hole_points: dict[tuple[int, str], float] | None = None,
+    hole_placements: dict[tuple[int, str], int] | None = None,
 ) -> None:
     """Editable Hull x spiller table for all players; masks unpublished opposing group scores and saves each changed cell for own group.
     When `hole_points` is given (6P Poeng-visning), cells show P6-points instead of slag and are always read-only."""
@@ -193,9 +207,10 @@ def render_all_scores_editor(
         own_group_players=own_group_players,
         published_hulls=published_hulls,
         hole_points=hole_points,
+        hole_placements=hole_placements,
     )
     editable = editable and hole_points is None
-    result = all_scores_table(rows, all_player_names, key=editor_key, editable=editable)
+    result = all_scores_table(rows, all_player_names, key=editor_key, editable=editable, points_mode=hole_points is not None)
     if not isinstance(result, dict):
         return
 
@@ -333,8 +348,12 @@ def render_all_scores_mode(ctx: dict) -> None:
             st.session_state[edit_all_scores_key] = not editing_all_scores
             st.rerun()
     hole_points = None
+    hole_placements = None
     if is_6p and st.session_state[points_mode_key]:
         hole_points = get_live_hole_points(
+            ctx["score_df"], ctx["state"]["par_by_hull"], ctx["state"]["published_hulls"], ctx["all_player_names"]
+        )
+        hole_placements = get_live_hole_placements(
             ctx["score_df"], ctx["state"]["par_by_hull"], ctx["state"]["published_hulls"], ctx["all_player_names"]
         )
     render_all_scores_editor(
@@ -348,4 +367,5 @@ def render_all_scores_mode(ctx: dict) -> None:
         editor_key=f"all_scores_editor_{ctx['base_key']}",
         editable=editing_all_scores,
         hole_points=hole_points,
+        hole_placements=hole_placements,
     )
